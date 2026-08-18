@@ -1,0 +1,97 @@
+# Aperture — Design Partner Onboarding
+
+Follow this end to end without a call. ~5 minutes to a working, seeded instance.
+
+## 1. Run the stack locally
+
+```bash
+# Backend
+cd apps/api
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+python -m aperture.seed                                # loads demo org + synthetic fixtures
+uvicorn aperture.main:app --reload                     # http://localhost:8000/docs
+
+# Frontend (separate terminal)
+cd apps/web
+npm install
+npm run dev                                            # http://localhost:3000
+```
+
+Open http://localhost:3000 — you should see classified episodes and a failure cluster already.
+
+## 2. Get your API key
+
+The seeded demo key is `demo-key`. For your own org:
+
+```bash
+curl -X POST http://localhost:8000/v1/onboarding/signup \
+  -H "Content-Type: application/json" \
+  -d '{"slug":"your-co","name":"Your Co"}'
+# → returns {"api_key": "ak_...", ...}   save this
+```
+
+Register a robot:
+
+```bash
+curl -X POST http://localhost:8000/v1/onboarding/robots \
+  -H "X-API-Key: ak_..." -H "Content-Type: application/json" \
+  -d '{"embodiment_type":"franka","policy_name":"openvla-7b"}'
+```
+
+## 3. Upload your episodes
+
+Aperture accepts **RLDS** (Open X-Embodiment) and **LeRobot** (HF datasets) episode files.
+Batch upload:
+
+```bash
+curl -X POST http://localhost:8000/v1/episodes/upload \
+  -H "X-API-Key: ak_..." \
+  -F "files=@episode1.rlds.json" \
+  -F "files=@episode2.lerobot.json"
+```
+
+See `apps/api/aperture/fixtures.py` for the exact accepted JSON shapes of each format.
+
+## 4. Run the loop
+
+1. **Classify** each failed episode → `POST /v1/episodes/{id}/classify`
+2. **Attribute** → `POST /v1/episodes/{id}/attribution` (attention heatmap + confidence trace + counterfactual)
+3. **Cluster** the fleet → `POST /v1/clusters/recompute`, then `GET /v1/clusters`
+4. **Export** a scoped fine-tune dataset → `POST /v1/clusters/{id}/dataset-export`
+5. Retrain on your side, then **verify** → `POST /v1/clusters/{id}/verify` with the new batch
+
+The dashboard drives steps 1–5 with buttons; the API supports full programmatic use.
+
+## 5. Deploy to production (optional)
+
+The stack runs fully locally with zero external accounts. To deploy onto the free-tier
+production services, supply the credentials below as env vars — no code changes are needed.
+See `docs/LOCAL_VS_PRODUCTION.md` for the local ↔ production mapping.
+
+- **Supabase (Postgres + pgvector)** — create a project, run `infra/supabase/migrations/0001_init.sql`
+  (creates tables, enables `pgvector`, sets row-level-security isolation), then set
+  `APERTURE_DATABASE_URL=postgresql+psycopg2://...` on the API. The app also enforces org
+  isolation at the application layer.
+- **Cloudflare R2 (object storage)** — create a bucket `aperture-blobs` and an S3 API token, then set
+  `APERTURE_R2_ENDPOINT_URL`, `APERTURE_R2_ACCESS_KEY_ID`, `APERTURE_R2_SECRET_ACCESS_KEY`,
+  `APERTURE_R2_BUCKET`. Storage auto-switches from the local filesystem to R2 when these are present.
+- **Render (backend)** — New → Blueprint pointed at this repo (`infra/render.yaml` is ready); fill the
+  `sync: false` env vars in the dashboard; verify `GET /health` returns 200.
+- **Vercel (frontend)** — import the repo with root directory `apps/web` (`infra/vercel.json` is ready);
+  set `NEXT_PUBLIC_API_BASE_URL` (your Render URL) and `NEXT_PUBLIC_API_KEY`.
+- **Sentry (optional)** — set `APERTURE_SENTRY_DSN` (API) and `NEXT_PUBLIC_SENTRY_DSN`/`SENTRY_DSN` (web).
+  Both stay inert until set.
+- **Real attention rollout (GPU)** — open `ml/notebooks/attention_rollout.ipynb` on Colab/Kaggle,
+  set `APERTURE_API_BASE`, `APERTURE_API_KEY`, and the `APERTURE_R2_*` vars as notebook secrets. It loads
+  open OpenVLA weights and writes real heatmaps to R2. Until then the API returns a deterministic
+  simulated heatmap (flagged `simulated: true`) so the pipeline works without a GPU.
+
+CI (`.github/workflows/ci.yml`) runs the backend tests and frontend build on every push automatically.
+
+## Troubleshooting
+
+- **401** — missing/invalid `X-API-Key`.
+- **404 on an episode/cluster** — it belongs to a different org (tenant isolation), or the id is wrong.
+- **422 on upload** — the file isn't valid RLDS/LeRobot JSON; the error names the file and reason.
+- **413 on upload** — a file exceeds 50 MB or the batch exceeds 50 files (configurable).

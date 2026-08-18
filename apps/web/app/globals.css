@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-parchment text-charcoal font-sans antialiased;
+  letter-spacing: -0.01em;
+}
+
+/* Display type — the serif voice of the brand. Weight 400, never heavier. */
+.serif {
+  @apply font-serif font-normal;
+  font-feature-settings: "liga" 0;
+}
+
+/* ── Surfaces ─────────────────────────────────────────────── */
+.card {
+  @apply bg-paper border border-mist rounded-xl shadow-subtle;
+}
+
+.card-flat {
+  @apply bg-paper border border-mist rounded-2xl;
+}
+
+/* ── Pills ────────────────────────────────────────────────── */
+.pill {
+  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-medium;
+}
+
+/* ── Buttons ──────────────────────────────────────────────── */
+/* Neutral outlined action — the workhorse. */
+.btn {
+  @apply inline-flex items-center justify-center gap-2 min-w-[92px] rounded-lg border border-twilight bg-transparent px-3 py-1.5 text-body-sm font-medium text-twilight hover:bg-linen disabled:opacity-40 transition;
+}
+
+/* Primary outlined CTA — the chromatic border is the whole identity. */
+.btn-accent {
+  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-signal bg-transparent px-3 py-1.5 text-body-sm font-medium text-signal hover:bg-signal/5 disabled:opacity-40 transition;
+}
+
+/* Sole filled variant — used sparingly for high-emphasis moments. */
+.btn-filled {
+  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-twilight bg-dusk px-4 py-2 text-body-sm font-medium text-paper hover:bg-twilight disabled:opacity-40 transition;
+}
+
+/* ── Form fields — paper-form feel: linen fill, single bottom line ── */
+.field {
+  @apply bg-linen text-charcoal border-b border-charcoal px-2.5 py-1.5 text-body-sm rounded-none focus:outline-none focus:border-signal transition;
+}
+
+/* ── Tables ───────────────────────────────────────────────── */
+table.data {
+  @apply w-full text-body-sm border-collapse;
+}
+table.data th {
+  @apply text-left text-ash font-medium uppercase tracking-wide text-caption px-3 py-2.5 border-b border-mist;
+}
+table.data td {
+  @apply px-3 py-3 border-b border-mist;
+}
+table.data tr:hover td {
+  @apply bg-linen;
+}
