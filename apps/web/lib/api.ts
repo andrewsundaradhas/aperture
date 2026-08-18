@@ -19,6 +19,23 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Resolve a storage URI into something the browser can actually fetch.
+ *
+ * The storage layer hands back backend-native URIs — `local://<key>` from the filesystem
+ * backend, `r2://<bucket>/<key>` from Cloudflare R2 — neither of which is a URL. Both are
+ * served by the API's `/v1/blobs/<key>` route, so strip the scheme and route through it.
+ * Only an http(s) URI (a real R2 presigned URL) is used verbatim.
+ */
+export function blobUrl(uri: string): string {
+  if (/^https?:\/\//.test(uri)) return uri;
+  const key = uri
+    .replace(/^local:\/\//, "")
+    .replace(/^r2:\/\/[^/]+\//, "")
+    .replace(/^\/?v1\/blobs\//, "")
+    .replace(/^\//, "");
+  return `${BASE}/v1/blobs/${key}`;
+}
+
 export type EpisodeSummary = {
   id: string;
   robot_id: string;
@@ -37,6 +54,14 @@ export type Frame = {
   subgoal: string | null;
 };
 
+/** Per-heuristic evidence behind a verdict. `_margin` is the gap to the runner-up. */
+export type Classification = {
+  surface: string;
+  confidence: number;
+  method: string;
+  details: Record<string, any>;
+};
+
 export type Episode = {
   id: string;
   robot_id: string;
@@ -47,6 +72,7 @@ export type Episode = {
   instruction: string | null;
   rlds_uri: string | null;
   frames: Frame[];
+  classification: Classification | null;
 };
 
 export type Attribution = {
@@ -103,6 +129,16 @@ export const api = {
   },
 };
 
+// ── Failure-surface presentation ──────────────────────────────────────────────
+
+export const SURFACES = ["perception", "grounding", "motor"] as const;
+
+export const SURFACE_BLURB: Record<string, string> = {
+  perception: "Action-confidence collapsed — the policy stopped trusting what it saw.",
+  grounding: "Sub-goals kept being re-issued — the instruction never grounded stably.",
+  motor: "Contact force spiked or flatlined — the physical interaction went wrong.",
+};
+
 export function surfaceColor(surface: string | null): string {
   switch (surface) {
     case "perception":
@@ -114,4 +150,64 @@ export function surfaceColor(surface: string | null): string {
     default:
       return "bg-linen text-ash border border-mist";
   }
+}
+
+export type Verdict = {
+  kind: "surface" | "none" | "inconclusive" | "unclassified";
+  label: string;
+  tone: string;
+  hint: string;
+};
+
+/** What to actually show for an episode's failure surface.
+ *
+ * The classifier always names a surface, even when nothing fired — ties break toward motor
+ * by design. Rendering that as a confident bucket is false certainty, so two cases get their
+ * own label instead: a successful episode has no failure to attribute, and a verdict that
+ * rounds to 0% is a tie-break rather than a finding.
+ */
+export function surfaceVerdict(
+  surface: string | null,
+  confidence: number | null,
+  outcome?: string,
+): Verdict {
+  if (outcome === "success") {
+    return {
+      kind: "none",
+      label: "no failure",
+      tone: "bg-ok/10 text-ok",
+      hint: "Episode succeeded — there is no failure surface to attribute.",
+    };
+  }
+  if (!surface) {
+    return {
+      kind: "unclassified",
+      label: "unclassified",
+      tone: "bg-linen text-ash border border-mist",
+      hint: "Not classified yet — run Classify on the episode.",
+    };
+  }
+  if (confidence != null && confidence < 0.005) {
+    return {
+      kind: "inconclusive",
+      label: "inconclusive",
+      tone: "bg-linen text-ash border border-mist",
+      hint: "No heuristic fired. The surface shown by the classifier is a tie-break, not a finding.",
+    };
+  }
+  return {
+    kind: "surface",
+    label: surface,
+    tone: surfaceColor(surface),
+    hint: SURFACE_BLURB[surface] ?? "",
+  };
+}
+
+/** Two heuristics within this margin means the verdict is a coin-flip worth flagging. */
+export const AMBIGUOUS_MARGIN = 0.1;
+
+export function isAmbiguous(details: Record<string, any> | undefined, confidence: number): boolean {
+  if (!details || confidence < 0.005) return false;
+  const margin = details["_margin"];
+  return typeof margin === "number" && margin < AMBIGUOUS_MARGIN;
 }

@@ -12,6 +12,7 @@ from aperture.core.db import get_db
 from aperture.core.models import Episode, Organization
 from aperture.ingestion.normalize import IngestionError, normalize
 from aperture.ingestion.schemas import (
+    EpisodeClassificationOut,
     EpisodeOut,
     EpisodeSummary,
     FrameOut,
@@ -104,6 +105,7 @@ def get_episode(
 ) -> EpisodeOut:
     """Return normalized metadata + per-frame signals. Scoped to the caller's org."""
     ep = _load_episode(db, org, episode_id)
+    cls = ep.classification
     return EpisodeOut(
         id=ep.id,
         robot_id=ep.robot_id,
@@ -122,6 +124,16 @@ def get_episode(
             )
             for fr in ep.frames
         ],
+        classification=(
+            EpisodeClassificationOut(
+                surface=cls.surface,
+                confidence=cls.confidence,
+                method=cls.method,
+                details=cls.details or {},
+            )
+            if cls
+            else None
+        ),
     )
 
 

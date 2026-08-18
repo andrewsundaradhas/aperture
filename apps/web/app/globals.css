@@ -11,6 +11,11 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* Keyboard focus is visible everywhere; pointer focus stays quiet. */
+:focus-visible {
+  @apply outline-none ring-2 ring-signal/60 ring-offset-2 ring-offset-parchment rounded-sm;
+}
+
 /* Display type — the serif voice of the brand. Weight 400, never heavier. */
 .serif {
   @apply font-serif font-normal;
@@ -26,6 +31,11 @@ body {
   @apply bg-paper border border-mist rounded-2xl;
 }
 
+/* A card that is itself a link — lifts toward the signal hue on hover. */
+.card-link {
+  @apply card transition duration-150 hover:border-signal/50 hover:shadow-atmospheric;
+}
+
 /* ── Pills ────────────────────────────────────────────────── */
 .pill {
   @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-medium;
@@ -34,17 +44,22 @@ body {
 /* ── Buttons ──────────────────────────────────────────────── */
 /* Neutral outlined action — the workhorse. */
 .btn {
-  @apply inline-flex items-center justify-center gap-2 min-w-[92px] rounded-lg border border-twilight bg-transparent px-3 py-1.5 text-body-sm font-medium text-twilight hover:bg-linen disabled:opacity-40 transition;
+  @apply inline-flex items-center justify-center gap-2 min-w-[92px] rounded-lg border border-twilight bg-transparent px-3 py-1.5 text-body-sm font-medium text-twilight hover:bg-linen disabled:opacity-40 disabled:cursor-not-allowed transition;
 }
 
 /* Primary outlined CTA — the chromatic border is the whole identity. */
 .btn-accent {
-  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-signal bg-transparent px-3 py-1.5 text-body-sm font-medium text-signal hover:bg-signal/5 disabled:opacity-40 transition;
+  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-signal bg-transparent px-3 py-1.5 text-body-sm font-medium text-signal hover:bg-signal/5 disabled:opacity-40 disabled:cursor-not-allowed transition;
 }
 
 /* Sole filled variant — used sparingly for high-emphasis moments. */
 .btn-filled {
-  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-twilight bg-dusk px-4 py-2 text-body-sm font-medium text-paper hover:bg-twilight disabled:opacity-40 transition;
+  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-twilight bg-dusk px-4 py-2 text-body-sm font-medium text-paper hover:bg-twilight disabled:opacity-40 disabled:cursor-not-allowed transition;
+}
+
+/* Quiet tertiary action — no border until you reach for it. */
+.btn-ghost {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1 text-caption font-medium text-ash hover:border-mist hover:text-charcoal disabled:opacity-40 transition;
 }
 
 /* ── Form fields — paper-form feel: linen fill, single bottom line ── */
@@ -53,15 +68,67 @@ body {
 }
 
 /* ── Tables ───────────────────────────────────────────────── */
+/* Wrapper keeps wide tables scrollable instead of blowing out the page on mobile. */
+.table-scroll {
+  @apply w-full overflow-x-auto;
+}
+
 table.data {
   @apply w-full text-body-sm border-collapse;
 }
 table.data th {
-  @apply text-left text-ash font-medium uppercase tracking-wide text-caption px-3 py-2.5 border-b border-mist;
+  @apply text-left text-ash font-medium uppercase tracking-wide text-caption px-3 py-2.5 border-b border-mist whitespace-nowrap;
 }
 table.data td {
   @apply px-3 py-3 border-b border-mist;
 }
-table.data tr:hover td {
+table.data tbody tr {
+  @apply transition-colors;
+}
+table.data tbody tr:hover td {
   @apply bg-linen;
+}
+/* Row-as-link: the whole row is the target, the id cell just carries the affordance. */
+table.data tr.row-link:hover .row-link-label {
+  @apply text-cerulean underline;
+}
+table.data tbody tr:last-child td {
+  @apply border-b-0;
+}
+
+/* ── Loading skeletons ────────────────────────────────────── */
+.skeleton {
+  @apply relative overflow-hidden rounded-md bg-mist/50;
+}
+.skeleton::after {
+  content: "";
+  @apply absolute inset-0;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.65) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
