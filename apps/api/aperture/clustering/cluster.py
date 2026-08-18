@@ -22,6 +22,7 @@ from aperture.core.models import (
     FailureClassification,
     Organization,
 )
+from aperture.ml import gateway, runtime
 
 
 def _hdbscan_labels(matrix: np.ndarray) -> np.ndarray:
@@ -37,6 +38,24 @@ def _hdbscan_labels(matrix: np.ndarray) -> np.ndarray:
         if len(matrix) < 2:
             return np.zeros(len(matrix), dtype=int)
         return AgglomerativeClustering(n_clusters=n).fit_predict(matrix)
+
+
+def _embed_episodes(episodes: list[Episode]) -> list[np.ndarray]:
+    """Choose one embedding space for the whole batch so the vectors are comparable.
+
+    Learned 384-dim visual embeddings are used only when learned models are enabled AND every
+    episode has a frame image (mixing 384-dim and 10-dim vectors in one matrix is meaningless);
+    otherwise the deterministic failure-signature embedding is used for all.
+    """
+    if gateway.learned_enabled() and all(gateway.episode_has_images(ep) for ep in episodes):
+        vecs: list[np.ndarray] = []
+        for ep in episodes:
+            img = gateway.first_frame_image(ep)
+            if img is None:  # defensive: fall back to signatures for the whole batch
+                return [embed_episode(ep) for ep in episodes]
+            vecs.append(runtime.embed_image(img, ep.instruction))
+        return vecs
+    return [embed_episode(ep) for ep in episodes]
 
 
 def recompute_clusters(db: Session, org: Organization) -> list[FailureCluster]:
@@ -56,7 +75,7 @@ def recompute_clusters(db: Session, org: Organization) -> list[FailureCluster]:
         db.commit()
         return []
 
-    matrix = np.vstack([embed_episode(ep) for ep in episodes])
+    matrix = np.vstack(_embed_episodes(episodes))
     labels = _hdbscan_labels(matrix)
 
     clusters: dict[int, list[int]] = {}

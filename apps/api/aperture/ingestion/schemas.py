@@ -15,6 +15,9 @@ class NormalizedFrame(BaseModel):
     action_confidence: float | None = None
     contact_force: float | None = None
     subgoal: str | None = None  # policy's current sub-goal token, used for replanning signal
+    # Optional base64-encoded RGB observation image for this frame. Consumed by the learned
+    # model path (policy/attention/classifier); ignored by the heuristic path.
+    image_b64: str | None = None
 
 
 class NormalizedEpisode(BaseModel):

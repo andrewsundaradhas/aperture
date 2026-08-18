@@ -50,6 +50,20 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB per file
     max_batch_files: int = 50
 
+    # --- Learned models (optional; requires the `[ml]` extra) ------------------
+    # Off by default so the base install runs anywhere with zero ML dependencies. When True
+    # AND the `[ml]` extra is installed AND the checkpoints load, the classify / attribution /
+    # clustering paths use the trained AperturePolicy + FailureHead over episode frame images,
+    # falling back to the heuristic/simulated path per-episode when an image is absent.
+    use_learned_models: bool = False
+    model_device: str = "cpu"  # "cuda" if a GPU is available to the API host
+    hf_model_repo: str = "KavinandHobbes/aperture-reference-policy"
+    hf_policy_file: str = "policy.pt"
+    hf_failure_head_file: str = "failure_head.pt"
+    # Load weights from this local dir instead of downloading (offline). Contains policy.pt /
+    # failure_head.pt. Leave unset to fetch + cache from Hugging Face.
+    local_model_dir: str | None = None
+
     @property
     def data_dir(self) -> Path:
         return _DATA_DIR

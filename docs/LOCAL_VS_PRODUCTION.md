@@ -21,15 +21,18 @@ services by setting env vars — no code changes.
 classifier and its combination rule, clustering (HDBSCAN over embeddings), scoped dataset
 export, loop-closure verification math, tenant isolation logic, all API contracts.
 
-**Substituted locally (swap-in points clearly marked in code):**
+**Substituted locally by default, with a real learned path available** (enable with the `[ml]`
+extra + `APERTURE_USE_LEARNED_MODELS=true` — see [ML_PIPELINE.md](ML_PIPELINE.md)):
+- **Failure classifier** — the 3 heuristics run by default; the trained `FailureHead` runs when
+  enabled and the episode has a frame image (`method="learned"`).
 - **Attention rollout** — `interpretability/rollout.py` emits a deterministic simulated heatmap
-  flagged `simulated: true`; the documented rollout method runs on real OpenVLA weights in the
-  Colab notebook.
-- **Clustering embedding** — `clustering/embed.py` computes a failure-signature vector instead
-  of CLIP; replace that one function + widen the pgvector column for the production encoder.
-- **Counterfactual policy** — `interpretability/counterfactual.py` uses `MockPolicyProbe`;
-  production plugs the customer's own open policy checkpoint behind the same `PolicyProbe`
-  interface (still no paid LLM calls — it probes their policy, not Claude/GPT).
+  flagged `simulated: true`; the learned path computes a real language→patch cross-attention
+  heatmap in-process, and the Colab notebook path writes OpenVLA rollouts to R2.
+- **Clustering embedding** — `clustering/embed.py` computes a failure-signature vector by default;
+  the learned path uses 384-dim pooled visual embeddings when every episode has an image.
+- **Counterfactual policy** — `interpretability/counterfactual.py` uses `MockPolicyProbe`; the
+  learned path plugs the trained policy behind the same `PolicyProbe` interface (still no paid LLM
+  calls — it probes the policy, not Claude/GPT).
 
 ## Upgrade triggers
 

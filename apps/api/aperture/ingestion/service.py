@@ -4,12 +4,29 @@ verify flow (which ingests a post-retrain batch through the same path).
 
 from __future__ import annotations
 
+import base64
+import binascii
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from aperture.core.models import Episode, EpisodeFrame, Organization, Robot
 from aperture.core.storage import get_storage
-from aperture.ingestion.schemas import NormalizedEpisode
+from aperture.ingestion.schemas import NormalizedEpisode, NormalizedFrame
+
+
+def _decode_image(frame: NormalizedFrame) -> bytes | None:
+    """Decode a frame's base64 image payload, tolerating a `data:` URI prefix. Returns None on
+    absent or malformed data (ingestion never fails just because an image is unreadable)."""
+    if not frame.image_b64:
+        return None
+    payload = frame.image_b64
+    if payload.startswith("data:") and "," in payload:
+        payload = payload.split(",", 1)[1]
+    try:
+        return base64.b64decode(payload, validate=False)
+    except (binascii.Error, ValueError):
+        return None
 
 
 def _get_or_create_robot(db: Session, org: Organization, ne: NormalizedEpisode) -> Robot:
@@ -47,7 +64,13 @@ def persist_episode(db: Session, org: Organization, ne: NormalizedEpisode) -> Ep
         key = f"{org.slug}/episodes/{episode.id}/{ne.raw_blob_name or 'raw.bin'}"
         episode.rlds_uri = get_storage().put_bytes(key, ne.raw_blob)
 
+    storage = get_storage()
     for f in ne.frames:
+        image_uri: str | None = None
+        img = _decode_image(f)
+        if img is not None:
+            key = f"{org.slug}/episodes/{episode.id}/frames/{f.t}.img"
+            image_uri = storage.put_bytes(key, img)
         db.add(
             EpisodeFrame(
                 episode_id=episode.id,
@@ -55,6 +78,7 @@ def persist_episode(db: Session, org: Organization, ne: NormalizedEpisode) -> Ep
                 action_confidence=f.action_confidence,
                 contact_force=f.contact_force,
                 subgoal=f.subgoal,
+                image_uri=image_uri,
             )
         )
     db.flush()

@@ -38,6 +38,14 @@ def _as_float(v) -> float | None:
         return None
 
 
+def _as_str(v) -> str | None:
+    """Coerce an optional value to a non-empty string, else None (used for base64 image data)."""
+    if v is None:
+        return None
+    s = str(v)
+    return s or None
+
+
 def parse_rlds(raw: bytes, filename: str = "episode.rlds.json") -> NormalizedEpisode:
     """Parse an RLDS / Open X-Embodiment episode.
 
@@ -86,6 +94,7 @@ def parse_rlds(raw: bytes, filename: str = "episode.rlds.json") -> NormalizedEpi
                 action_confidence=_as_float(obs.get("action_confidence")),
                 contact_force=_as_float(obs.get("contact_force")),
                 subgoal=(str(step["subgoal"]) if step.get("subgoal") is not None else None),
+                image_b64=_as_str(obs.get("image")),
             )
         )
 
@@ -144,6 +153,7 @@ def parse_lerobot(raw: bytes, filename: str = "episode.lerobot.json") -> Normali
                 action_confidence=_as_float(row.get("observation.confidence")),
                 contact_force=_as_float(row.get("observation.force")),
                 subgoal=(str(row["subtask"]) if row.get("subtask") is not None else None),
+                image_b64=_as_str(row.get("observation.image")),
             )
         )
 

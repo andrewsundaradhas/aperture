@@ -17,7 +17,13 @@ def test_both_formats_normalize_to_same_shape():
         assert ne.outcome == "fail"
         assert ne.frames
         f = ne.frames[0]
-        assert set(f.model_dump().keys()) == {"t", "action_confidence", "contact_force", "subgoal"}
+        assert set(f.model_dump().keys()) == {
+            "t",
+            "action_confidence",
+            "contact_force",
+            "subgoal",
+            "image_b64",
+        }
 
 
 def test_malformed_file_raises_clean_error():

@@ -89,6 +89,9 @@ class EpisodeFrame(Base):
     action_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     contact_force: Mapped[float | None] = mapped_column(Float, nullable=True)
     subgoal: Mapped[str | None] = mapped_column(String, nullable=True)  # for replanning signal
+    # Optional per-frame RGB observation blob (uri into object storage). Present only when the
+    # upload carries images; required for the learned-model path (policy/attention/classifier).
+    image_uri: Mapped[str | None] = mapped_column(String, nullable=True)
 
     episode: Mapped[Episode] = relationship(back_populates="frames")
 

@@ -32,6 +32,7 @@ aperture-platform/
 │   │       ├── clustering/      # embedding-space clustering job
 │   │       ├── datasets/        # scoped dataset export service
 │   │       ├── loop/            # before/after verification
+│   │       ├── ml/             # trained policy + failure head, inference runtime (optional)
 │   │       ├── core/            # db models, auth, config, storage
 │   │       └── main.py
 │   └── web/                 # Next.js dashboard
@@ -66,6 +67,7 @@ npm install
 npm run dev            # → http://localhost:3000  (proxies to the API at :8000)
 ```
 
-See [docs/PILOT_ONBOARDING.md](docs/PILOT_ONBOARDING.md) for the design-partner flow and
+See [docs/PILOT_ONBOARDING.md](docs/PILOT_ONBOARDING.md) for the design-partner flow,
 [docs/LOCAL_VS_PRODUCTION.md](docs/LOCAL_VS_PRODUCTION.md) for how the local stack maps onto
-the free-tier production services.
+the free-tier production services, and [docs/ML_PIPELINE.md](docs/ML_PIPELINE.md) for enabling the
+trained models (`AperturePolicy` + `FailureHead`) over the heuristic/simulated default.

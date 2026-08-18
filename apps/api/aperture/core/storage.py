@@ -90,6 +90,21 @@ def get_storage() -> StorageBackend:
     return _backend
 
 
+def key_from_uri(uri: str) -> str:
+    """Recover the storage key from a uri returned by `put_bytes` (local:// or r2://bucket/)."""
+    if uri.startswith("local://"):
+        return uri[len("local://") :]
+    if uri.startswith("r2://"):
+        rest = uri[len("r2://") :]
+        return rest.split("/", 1)[1] if "/" in rest else rest
+    return uri
+
+
+def read_uri(uri: str) -> bytes:
+    """Read the bytes a stored uri points at, regardless of backend."""
+    return get_storage().get_bytes(key_from_uri(uri))
+
+
 def reset_storage() -> None:
     """Test hook."""
     global _backend
