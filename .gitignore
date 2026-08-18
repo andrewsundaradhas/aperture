@@ -15,6 +15,11 @@ out/
 .vercel/
 npm-debug.log*
 
+# Local env overrides. apps/web/.env.example tells you to copy it to .env.local, which the
+# bare `.env` rule above does not match — without these the copy gets committed with its key.
+.env.local
+.env.*.local
+
 # ML weights (never commit checkpoints; configs only)
 ml/models/*.bin
 ml/models/*.safetensors

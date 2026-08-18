@@ -3,6 +3,10 @@ import type { Config } from "tailwindcss";
 // General Intelligence Company editorial design system — a warm, literary light theme.
 // The robotics data-category hues (perception/grounding/motor/ok) are retained but
 // retuned for legible contrast on the parchment canvas.
+//
+// Only the named GIC tokens below exist. The earlier dark-theme aliases (ink/panel/edge/
+// muted/accent) have been removed, so a stale utility class now fails visibly instead of
+// silently resolving to an off-scale colour.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
@@ -22,13 +26,6 @@ const config: Config = {
         dusk: "#1f1f29",
         signal: "#41a1cf",
         cerulean: "#0081c0",
-
-        // Backwards-compatible aliases so existing markup adopts the light theme.
-        ink: "#171717", // darkest text
-        panel: "#ffffff", // paper card surface
-        edge: "#dee2de", // mist hairline border
-        muted: "#646464", // ash muted text
-        accent: "#41a1cf", // signal blue
 
         // Failure-surface data categories, darkened for light-canvas readability.
         perception: "#a86611",
