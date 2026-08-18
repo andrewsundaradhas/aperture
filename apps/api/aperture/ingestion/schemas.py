@@ -42,6 +42,21 @@ class FrameOut(BaseModel):
     subgoal: str | None
 
 
+class EpisodeClassificationOut(BaseModel):
+    """The evaluation verdict, carried on the episode so the dashboard can show *why*.
+
+    `details` holds each heuristic's confidence + evidence and the `_margin` between the
+    top two — the dashboard renders that breakdown rather than the bucket name alone.
+    """
+
+    surface: str
+    confidence: float
+    method: str
+    details: dict = Field(default_factory=dict)
+
+    model_config = {"from_attributes": True}
+
+
 class EpisodeOut(BaseModel):
     id: str
     robot_id: str
@@ -52,6 +67,7 @@ class EpisodeOut(BaseModel):
     instruction: str | None
     rlds_uri: str | None
     frames: list[FrameOut]
+    classification: EpisodeClassificationOut | None = None
 
     model_config = {"from_attributes": True}
 

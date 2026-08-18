@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
+import { NavLink } from "@/components/NavLink";
 
 // Substitutes for the brand's custom faces: Fraunces stands in for the ppmondwest
 // display serif, Inter for the af UI sans.
@@ -27,25 +28,27 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${ppmondwest.variable} ${af.variable}`}>
       <body>
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-30 focus:rounded-lg focus:bg-paper focus:px-3 focus:py-2 focus:text-body-sm focus:shadow-nav"
+        >
+          Skip to content
+        </a>
         <div className="min-h-screen">
           {/* Floating frosted navigation pill */}
           <header className="sticky top-4 z-20 px-4">
-            <nav className="mx-auto max-w-[1200px]">
-              <div className="mx-auto flex w-fit items-center gap-5 rounded-nav border border-mist bg-paper/70 px-3 py-2 shadow-nav backdrop-blur-md">
-                <Link href="/" className="flex items-center gap-2 pl-1 pr-1">
+            <nav className="mx-auto max-w-[1200px]" aria-label="Primary">
+              <div className="mx-auto flex w-fit max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 rounded-nav border border-mist bg-paper/70 px-3 py-2 shadow-nav backdrop-blur-md">
+                <Link href="/" className="flex items-center gap-2 px-1">
                   <SunGlyph />
                   <span className="serif text-subheading leading-none text-graphite">
                     Aperture
                   </span>
                 </Link>
-                <span className="h-4 w-px bg-mist" aria-hidden />
-                <div className="flex items-center gap-4 text-body-sm font-medium text-charcoal">
-                  <Link href="/episodes" className="hover:text-graphite transition">
-                    Episodes
-                  </Link>
-                  <Link href="/clusters" className="hover:text-graphite transition">
-                    Clusters
-                  </Link>
+                <span className="hidden h-4 w-px bg-mist sm:block" aria-hidden />
+                <div className="flex items-center gap-4 text-body-sm font-medium">
+                  <NavLink href="/episodes">Episodes</NavLink>
+                  <NavLink href="/clusters">Clusters</NavLink>
                 </div>
                 <Link
                   href="/episodes"
@@ -58,19 +61,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </nav>
           </header>
 
-          <main className="mx-auto max-w-[1200px] px-6 py-16">{children}</main>
+          <main id="main" className="mx-auto max-w-[1200px] px-6 py-16">
+            {children}
+          </main>
 
           <footer className="mt-24 border-t border-mist bg-paper">
             <div className="mx-auto max-w-[1200px] px-6 py-16">
-              <p className="serif text-heading-sm text-graphite max-w-2xl">
-                The evaluation &amp; interpretability layer for Vision-Language-Action
-                robot policies.
+              <p className="serif max-w-2xl text-heading-sm text-graphite">
+                The evaluation &amp; interpretability layer for Vision-Language-Action robot
+                policies.
               </p>
               <div className="mt-8 flex flex-wrap items-center gap-6 text-body-sm text-ash">
-                <Link href="/episodes" className="hover:text-charcoal transition">
+                <Link href="/episodes" className="transition hover:text-charcoal">
                   Episodes
                 </Link>
-                <Link href="/clusters" className="hover:text-charcoal transition">
+                <Link href="/clusters" className="transition hover:text-charcoal">
                   Clusters
                 </Link>
                 <span className="ml-auto text-caption text-fog">

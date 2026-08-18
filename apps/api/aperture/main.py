@@ -41,9 +41,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
+# Any localhost/127.0.0.1 port is allowed: `next dev` auto-increments past 3000 when that
+# port is busy, and a hardcoded origin would silently break every dashboard fetch.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
 )
