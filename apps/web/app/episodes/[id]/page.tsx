@@ -11,6 +11,7 @@ import {
   ActionButton,
   Eyebrow,
   ErrorNote,
+  Mark,
   OutcomePill,
   Skeleton,
   SurfacePill,
@@ -78,10 +79,10 @@ export default function EpisodeDetail() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/episodes" className="text-ash hover:text-graphite transition">
+        <Link href="/episodes" className="link">
           &larr; Episodes
         </Link>
-        <span className="font-mono text-body-sm text-ash">{episode.id.slice(0, 12)}</span>
+        <span className="muoto text-caption text-slate-smoke">{episode.id.slice(0, 12)}</span>
         <OutcomePill outcome={episode.outcome} />
         <SurfacePill
           surface={cls?.surface ?? null}
@@ -96,7 +97,7 @@ export default function EpisodeDetail() {
             onClick={attribute}
             busy={busy === "attribute"}
             disabled={!!busy}
-            variant="btn-accent"
+            variant="btn-filled"
           >
             Run attribution
           </ActionButton>
@@ -108,7 +109,7 @@ export default function EpisodeDetail() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="card space-y-3 p-4">
           <Eyebrow>Instruction</Eyebrow>
-          <div className="text-graphite">{episode.instruction ?? "—"}</div>
+          <div className="text-body-lg text-forest-ink">{episode.instruction ?? "—"}</div>
           <div className="grid grid-cols-2 gap-3 pt-1">
             <Meta label="Format" value={episode.source_format.toUpperCase()} />
             <Meta label="Frames" value={String(episode.frames.length)} />
@@ -137,7 +138,7 @@ export default function EpisodeDetail() {
             <Eyebrow>Sub-goal sequence</Eyebrow>
             <SubgoalTrack frames={episode.frames} />
           </div>
-          <div className="space-y-3 border-t border-mist pt-4">
+          <div className="space-y-3 border-t border-lichen pt-4">
             <Eyebrow>Instruction sensitivity (counterfactual)</Eyebrow>
             <Counterfactual cf={cf} />
           </div>
@@ -157,40 +158,39 @@ export default function EpisodeDetail() {
 function Counterfactual({ cf }: { cf: any }) {
   if (!cf)
     return (
-      <p className="text-body-sm text-ash">
+      <p className="text-body text-slate-smoke">
         Runs automatically for grounding failures when you attribute. Motor and perception
         failures skip it.
       </p>
     );
   if (cf.applicable === false)
-    return <p className="text-body-sm text-ash">Not applicable: {cf.reason}</p>;
+    return <p className="text-body text-slate-smoke">Not applicable: {cf.reason}</p>;
 
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span
-          className={`pill ${
-            cf.verdict === "grounding-sensitive"
-              ? "bg-grounding/10 text-grounding"
-              : "bg-ok/10 text-ok"
-          }`}
-        >
+        <span className="pill border border-lichen bg-bone-white text-forest-ink">
+          <Mark
+            surface={cf.verdict === "grounding-sensitive" ? "grounding" : null}
+            filled={cf.verdict === "grounding-sensitive"}
+            size={8}
+          />
           {cf.verdict}
         </span>
-        <span className="text-body-sm text-ash">
+        <span className="text-body text-slate-smoke">
           {Math.round(cf.sensitivity * 100)}% of paraphrases changed the target
         </span>
       </div>
-      <div className="font-mono text-caption text-ash">
+      <div className="muoto text-caption text-slate-smoke">
         base &ldquo;{cf.base_instruction}&rdquo; &rarr; {cf.base_target}
       </div>
-      <ul className="text-body-sm">
+      <ul className="text-body">
         {cf.trials?.map((t: any, i: number) => (
-          <li key={i} className="flex justify-between gap-2 border-b border-mist py-1.5 last:border-b-0">
-            <span className="truncate text-charcoal">&ldquo;{t.instruction}&rdquo;</span>
+          <li key={i} className="flex justify-between gap-2 border-b border-lichen py-1.5 last:border-b-0">
+            <span className="truncate text-forest-ink">&ldquo;{t.instruction}&rdquo;</span>
             <span
-              className={`font-mono text-caption tabular-nums ${
-                t.changed ? "text-motor" : "text-ash"
+              className={`muoto text-caption tabular-nums ${
+                t.changed ? "text-deep-fern" : "text-slate-smoke"
               }`}
               title={t.changed ? "resolved to a different object" : "unchanged"}
             >
@@ -207,8 +207,8 @@ function Counterfactual({ cf }: { cf: any }) {
 function Meta({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-caption text-ash">{label}</div>
-      <div className="font-mono text-body-sm text-graphite">{value}</div>
+      <div className="muoto text-caption text-slate-smoke">{label}</div>
+      <div className="mt-0.5 text-body text-forest-ink">{value}</div>
     </div>
   );
 }
@@ -233,8 +233,8 @@ function DetailSkeleton() {
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Skeleton className="h-56 w-full rounded-xl" />
-        <Skeleton className="h-56 w-full rounded-xl" />
+        <Skeleton className="h-56 w-full rounded-card" />
+        <Skeleton className="h-56 w-full rounded-card" />
       </div>
     </div>
   );

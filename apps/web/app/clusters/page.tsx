@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { api, Cluster, SURFACE_BLURB, recomputeClusters } from "@/lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { api, Cluster, SURFACES, recomputeClusters } from "@/lib/api";
 import {
   ActionButton,
   CardSkeleton,
   Empty,
   ErrorNote,
   PageHeader,
-  SurfacePill,
+  SectionHead,
+  StatTile,
 } from "@/components/ui";
+import { ClusterBars } from "@/components/ClusterBars";
+import { SurfaceMix } from "@/components/SurfaceMix";
 
 export default function ClustersPage() {
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -44,15 +46,29 @@ export default function ClustersPage() {
   }
 
   const total = clusters.reduce((n, c) => n + c.episode_count, 0);
-  const largest = Math.max(...clusters.map((c) => c.episode_count), 1);
+
+  // Clusters per surface — how the fleet's recurring modes distribute, not the episodes'.
+  const mix = useMemo(() => {
+    const counts = Object.fromEntries(
+      SURFACES.map((s) => [
+        s,
+        clusters.filter((c) => c.dominant_surface === s).reduce((n, c) => n + c.episode_count, 0),
+      ]),
+    ) as Record<string, number>;
+    return { counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
+  }, [clusters]);
+
+  const biggest = clusters.length
+    ? clusters.reduce((a, b) => (b.episode_count > a.episode_count ? b : a))
+    : null;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       <PageHeader
         title="Failure clusters"
         subtitle="Recurring failure modes across the fleet, largest first."
       >
-        <ActionButton onClick={recompute} busy={busy} variant="btn-accent">
+        <ActionButton onClick={recompute} busy={busy} variant="btn-filled">
           Recompute clusters
         </ActionButton>
       </PageHeader>
@@ -64,56 +80,46 @@ export default function ClustersPage() {
       ) : error ? null : clusters.length === 0 ? (
         <Empty>
           No clusters yet. Classify some failed episodes, then{" "}
-          <span className="text-charcoal">Recompute</span>.
+          <span className="text-forest-ink">Recompute</span>.
         </Empty>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {clusters.map((c) => (
-              <Link key={c.id} href={`/clusters/${c.id}`} className="card-link group block p-6">
-                <div className="flex items-start justify-between gap-3">
-                  <SurfacePill surface={c.dominant_surface} />
-                  <div className="text-right">
-                    <div className="serif text-heading-sm tabular-nums text-graphite">
-                      {c.episode_count}
-                    </div>
-                    <div className="text-caption text-fog">
-                      {Math.round((c.episode_count / total) * 100)}% of clustered
-                    </div>
-                  </div>
-                </div>
-
-                {/* Size relative to the largest cluster — scannable across cards. */}
-                <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-mist/60">
-                  <div
-                    className="h-full bg-signal/60"
-                    style={{ width: `${(c.episode_count / largest) * 100}%` }}
-                  />
-                </div>
-
-                <div className="mt-3 font-mono text-body-sm text-charcoal group-hover:text-cerulean transition">
-                  {c.label}
-                </div>
-                {c.dominant_surface && (
-                  <p className="mt-1 text-caption leading-relaxed text-ash">
-                    {SURFACE_BLURB[c.dominant_surface]}
-                  </p>
-                )}
-                {c.representative_episode_id && (
-                  <div className="mt-2 text-caption text-fog">
-                    representative{" "}
-                    <span className="font-mono">
-                      {c.representative_episode_id.slice(0, 8)}
-                    </span>
-                  </div>
-                )}
-              </Link>
-            ))}
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatTile label="Clusters" value={clusters.length} note="recurring modes" />
+            <StatTile label="Episodes clustered" value={total} note="across all modes" />
+            <StatTile
+              label="Largest mode"
+              value={biggest?.episode_count ?? 0}
+              note={biggest?.label ?? "—"}
+            />
+            <StatTile
+              label="Mean size"
+              value={clusters.length ? Math.round((total / clusters.length) * 10) / 10 : 0}
+              note="episodes per mode"
+            />
           </div>
-          <p className="text-caption text-ash">
-            {clusters.length} cluster{clusters.length === 1 ? "" : "s"} covering {total} episode
-            {total === 1 ? "" : "s"}.
-          </p>
+
+          <section className="space-y-5">
+            <SectionHead
+              left="cluster size"
+              right="largest first"
+              title="Every failure mode"
+            />
+            <ClusterBars clusters={clusters} />
+          </section>
+
+          {mix.total > 0 && (
+            <section className="space-y-5">
+              <SectionHead
+                left="surface"
+                right="share of clustered"
+                title="What the modes are made of"
+              />
+              <div className="card p-6">
+                <SurfaceMix counts={mix.counts} total={mix.total} />
+              </div>
+            </section>
+          )}
         </>
       )}
     </div>

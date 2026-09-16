@@ -73,18 +73,18 @@ export default function ClusterDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Link href="/clusters" className="text-ash hover:text-graphite transition">
+        <Link href="/clusters" className="link">
           &larr; Clusters
         </Link>
         <SurfacePill surface={cluster.dominant_surface} />
-        <span className="font-mono text-body-sm text-charcoal">{cluster.label}</span>
-        <span className="ml-auto text-body-sm text-ash">
+        <span className="muoto text-body text-forest-ink">{cluster.label}</span>
+        <span className="ml-auto text-body text-slate-smoke">
           {cluster.episode_count} episode{cluster.episode_count === 1 ? "" : "s"}
         </span>
       </div>
 
       {cluster.dominant_surface && (
-        <p className="max-w-2xl text-body-sm leading-relaxed text-ash">
+        <p className="max-w-2xl text-body leading-relaxed text-slate-smoke">
           {SURFACE_BLURB[cluster.dominant_surface]}
         </p>
       )}
@@ -95,7 +95,7 @@ export default function ClusterDetailPage() {
         {/* Scoped dataset export */}
         <div className="card space-y-3 p-4">
           <Eyebrow>Scoped fine-tune export</Eyebrow>
-          <p className="text-body-sm text-ash">
+          <p className="text-body text-slate-smoke">
             Exports only this cluster&rsquo;s {cluster.episode_count} episodes — not the whole
             fleet.
           </p>
@@ -107,7 +107,7 @@ export default function ClusterDetailPage() {
               id="export-format"
               value={format}
               onChange={(e) => setFormat(e.target.value)}
-              className="field"
+              className="field w-auto"
             >
               <option value="lerobot">LeRobot</option>
               <option value="rlds">RLDS</option>
@@ -116,7 +116,7 @@ export default function ClusterDetailPage() {
               onClick={doExport}
               busy={busy === "export"}
               disabled={!!busy}
-              variant="btn-accent"
+              variant="btn-filled"
             >
               Export dataset
             </ActionButton>
@@ -126,7 +126,7 @@ export default function ClusterDetailPage() {
               href={exportUrl}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 text-body-sm text-signal hover:underline"
+              className="link inline-flex items-center gap-1.5 text-body"
             >
               &darr; Download {exportCount ?? cluster.episode_count} episodes ·{" "}
               {format.toUpperCase()}
@@ -137,7 +137,7 @@ export default function ClusterDetailPage() {
         {/* Loop-closure verify */}
         <div className="card space-y-3 p-4">
           <Eyebrow>Verify fix (loop closure)</Eyebrow>
-          <p className="text-body-sm text-ash">
+          <p className="text-body text-slate-smoke">
             Upload a post-retrain batch of the same tasks; Aperture re-measures the same failure
             signature and computes the before/after delta.
           </p>
@@ -150,11 +150,13 @@ export default function ClusterDetailPage() {
               ref={fileRef}
               type="file"
               multiple
-              accept=".json"
+              // The verify endpoint takes everything ingestion takes — RLDS .tfrecord
+              // streams and LeRobot v3 archives, not just the portable JSON fixtures.
+              accept=".json,.tfrecord,.tfrecords,.zip,.tar,.tar.gz,.tgz"
               onChange={(e) => setFileCount(e.target.files?.length ?? 0)}
               className="sr-only"
             />
-            <span className="text-caption text-ash">
+            <span className="muoto text-caption text-slate-smoke">
               {fileCount ? `${fileCount} file${fileCount === 1 ? "" : "s"} selected` : "no files selected"}
             </span>
             <ActionButton
@@ -170,7 +172,7 @@ export default function ClusterDetailPage() {
       </div>
 
       <div className="card overflow-hidden">
-        <div className="border-b border-mist px-4 py-3">
+        <div className="border-b border-lichen px-4 py-3">
           <Eyebrow>Episodes in this cluster</Eyebrow>
         </div>
         {cluster.episodes.length === 0 ? (
@@ -197,12 +199,12 @@ export default function ClusterDetailPage() {
                       <Link
                         href={`/episodes/${e.id}`}
                         onClick={(ev) => ev.stopPropagation()}
-                        className="row-link-label font-mono text-signal"
+                        className="row-link-label muoto text-deep-fern"
                       >
                         {e.id.slice(0, 8)}
                       </Link>
                     </td>
-                    <td className="text-charcoal">{e.instruction ?? "—"}</td>
+                    <td className="text-forest-ink">{e.instruction ?? "—"}</td>
                     <td>
                       <OutcomePill outcome={e.outcome} />
                     </td>
@@ -224,15 +226,15 @@ function BeforeAfter({ v }: { v: VerifyResult }) {
   const positive = v.delta > 0.001;
   const regressed = v.delta < -0.001;
   return (
-    <div className="space-y-2 border-t border-mist pt-3">
+    <div className="space-y-2 border-t border-lichen pt-3">
       <div className="flex items-end gap-3">
-        <Bar label="before" value={v.pre_success_rate} tone="bg-motor" />
-        <Bar label="after" value={v.post_success_rate} tone={positive ? "bg-ok" : "bg-fog"} />
+        <Bar label="before" value={v.pre_success_rate} tone="bg-lichen" />
+        <Bar label="after" value={v.post_success_rate} tone={positive ? "bg-moss" : "bg-lichen"} />
         <div className="ml-auto text-right">
-          <div className="text-caption text-ash">success-rate &Delta;</div>
+          <div className="muoto text-caption text-slate-smoke">success-rate &Delta;</div>
           <div
-            className={`serif text-heading-sm tabular-nums ${
-              positive ? "text-ok" : regressed ? "text-motor" : "text-ash"
+            className={`text-heading font-medium tabular-nums ${
+              positive ? "text-deep-fern" : regressed ? "text-alarm" : "text-slate-smoke"
             }`}
           >
             {positive ? "+" : ""}
@@ -240,11 +242,11 @@ function BeforeAfter({ v }: { v: VerifyResult }) {
           </div>
         </div>
       </div>
-      <div className="text-caption text-ash">
+      <div className="muoto text-caption text-slate-smoke">
         n={v.pre_n} before · n={v.post_n} matched after
       </div>
       {!positive && !regressed && (
-        <p className="text-caption text-perception">
+        <p className="text-caption text-caution">
           No measurable movement — the retrain did not shift this failure signature.
         </p>
       )}
@@ -257,17 +259,17 @@ function Bar({ label, value, tone }: { label: string; value: number; tone: strin
   return (
     <div className="flex flex-col items-center gap-1">
       <div
-        className="flex h-24 w-10 items-end overflow-hidden rounded-md border border-mist bg-linen"
+        className="flex h-24 w-10 items-end overflow-hidden rounded-tag bg-ash-gray shadow-hairline"
         role="meter"
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`${label} success rate`}
       >
-        <div className={`w-full ${tone}`} style={{ height: `${pct}%` }} />
+        <div className={`w-full rounded-[4px] ${tone}`} style={{ height: `${pct}%` }} />
       </div>
-      <span className="text-caption text-ash">{label}</span>
-      <span className="font-mono text-caption tabular-nums text-charcoal">{pct}%</span>
+      <span className="muoto text-caption text-slate-smoke">{label}</span>
+      <span className="muoto text-caption tabular-nums text-forest-ink">{pct}%</span>
     </div>
   );
 }
@@ -281,10 +283,10 @@ function ClusterSkeleton() {
         <Skeleton className="h-4 w-36" />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Skeleton className="h-40 w-full rounded-xl" />
-        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-card" />
+        <Skeleton className="h-40 w-full rounded-card" />
       </div>
-      <Skeleton className="h-64 w-full rounded-xl" />
+      <Skeleton className="h-64 w-full rounded-card" />
     </div>
   );
 }

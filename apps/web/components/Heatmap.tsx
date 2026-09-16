@@ -9,13 +9,16 @@ type HeatmapDoc = {
   frames: { t: number; grid: number[][] }[];
 };
 
-// Viridis-ish ramp: perceptually ordered so "brighter = more attention" reads without a key.
+// A single-hue sequential ramp, pale sage → forest ink, monotonic in lightness so "darker =
+// more attention" reads without a key. A multi-hue ramp (viridis and friends) would be a
+// rainbow in a system that has exactly one hue, and rainbows imply category boundaries that
+// a continuous attention weight does not have.
 const STOPS = [
-  [13, 8, 135],
-  [126, 3, 168],
-  [204, 71, 120],
-  [248, 149, 64],
-  [240, 249, 33],
+  [240, 244, 241],
+  [168, 207, 176],
+  [77, 165, 109],
+  [11, 107, 69],
+  [9, 53, 46],
 ];
 
 function heatColor(v: number): string {
@@ -53,20 +56,20 @@ export function Heatmap({ uri }: { uri: string | null }) {
   if (!uri)
     return (
       <div className="flex h-[200px] flex-col items-center justify-center gap-1 text-center">
-        <div className="text-body-sm text-ash">No attention map yet</div>
-        <div className="text-caption text-fog">Run attribution to generate one.</div>
+        <div className="text-body text-slate-smoke">No attention map yet</div>
+        <div className="muoto text-caption text-slate-smoke">Run attribution to generate one.</div>
       </div>
     );
   if (error)
     return (
-      <div className="flex h-[200px] items-center justify-center text-body-sm text-motor">
+      <div className="flex h-[200px] items-center justify-center text-body text-alarm">
         Couldn’t load the attention map: {error}
       </div>
     );
   if (!doc)
     return (
       <div className="space-y-3">
-        <div className="skeleton mx-auto aspect-square w-[240px]" />
+        <div className="skeleton mx-auto aspect-square w-[240px] rounded-card" />
         <div className="skeleton mx-auto h-2 w-32" />
       </div>
     );
@@ -78,7 +81,7 @@ export function Heatmap({ uri }: { uri: string | null }) {
   return (
     <div className="space-y-3">
       <div
-        className="mx-auto grid gap-px overflow-hidden rounded-lg bg-mist"
+        className="mx-auto grid gap-px overflow-hidden rounded-tag bg-lichen"
         style={{ gridTemplateColumns: `repeat(${doc.grid_size}, 1fr)`, maxWidth: 280 }}
         role="img"
         aria-label={`Attention rollout at frame ${current?.t ?? 0}, ${doc.grid_size}×${doc.grid_size} grid`}
@@ -96,9 +99,9 @@ export function Heatmap({ uri }: { uri: string | null }) {
 
       {/* Scale key — without it the colours are decoration, not data. */}
       <div className="mx-auto flex max-w-[280px] items-center gap-2">
-        <span className="text-caption text-fog">low</span>
+        <span className="muoto text-caption text-slate-smoke">low</span>
         <div className="h-1.5 flex-1 rounded-full" style={{ background: gradient }} aria-hidden />
-        <span className="text-caption text-fog">peak</span>
+        <span className="muoto text-caption text-slate-smoke">peak</span>
       </div>
 
       {doc.frames.length > 1 && (
@@ -113,20 +116,20 @@ export function Heatmap({ uri }: { uri: string | null }) {
             max={doc.frames.length - 1}
             value={frame}
             onChange={(e) => setFrame(Number(e.target.value))}
-            className="w-full accent-signal"
+            className="w-full"
             aria-valuetext={`frame ${current?.t ?? frame}`}
           />
         </div>
       )}
 
-      <div className="flex justify-between text-caption text-ash">
-        <span className="font-mono">
+      <div className="flex items-center justify-between text-caption text-slate-smoke">
+        <span className="muoto">
           frame {current?.t ?? 0}
-          <span className="text-fog"> / {doc.frames.length - 1}</span>
+          <span className="text-slate-smoke"> / {doc.frames.length - 1}</span>
         </span>
         {doc.simulated && (
           <span
-            className="pill bg-perception/10 text-perception"
+            className="tag"
             title="No GPU worker is configured, so the map is synthesized. Run ml/notebooks/attention_rollout.ipynb for real rollout."
           >
             simulated

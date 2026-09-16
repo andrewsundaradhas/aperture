@@ -133,8 +133,20 @@ export type VerifyResult = {
 };
 
 export const api = {
-  listEpisodes: (q: { robot_id?: string; surface?: string; outcome?: string } = {}) => {
-    const p = new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][]);
+  listEpisodes: (
+    q: {
+      robot_id?: string;
+      surface?: string;
+      outcome?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ) => {
+    const p = new URLSearchParams(
+      Object.entries(q)
+        .filter(([, v]) => v !== undefined && v !== "" && v !== null)
+        .map(([k, v]) => [k, String(v)]),
+    );
     return req<EpisodeSummary[]>(`/v1/episodes${p.toString() ? `?${p}` : ""}`);
   },
   getEpisode: (id: string) => req<Episode>(`/v1/episodes/${id}`),
@@ -182,6 +194,31 @@ export async function waitForJob(
   }
 }
 
+/** Every episode matching a filter, not just the first page.
+ *
+ * `GET /v1/episodes` is paginated and defaults to 50 rows. Fleet-wide readings — the totals on
+ * the overview, the scatter plot, the surface mix — describe the whole fleet, so reading one
+ * page silently under-reports every one of them: a fleet of 162 episodes rendered as "50".
+ *
+ * Pages at the API's maximum and stops on the first short page. `cap` bounds the work for a
+ * genuinely large fleet; `complete` reports whether the cap truncated the answer, so a caller
+ * can say so rather than quietly presenting a partial fleet as the whole one.
+ */
+const PAGE_SIZE = 500;
+
+export async function fetchAllEpisodes(
+  q: { robot_id?: string; surface?: string; outcome?: string } = {},
+  cap = 5000,
+): Promise<{ episodes: EpisodeSummary[]; complete: boolean }> {
+  const out: EpisodeSummary[] = [];
+  for (let offset = 0; offset < cap; offset += PAGE_SIZE) {
+    const page = await api.listEpisodes({ ...q, limit: PAGE_SIZE, offset });
+    out.push(...page);
+    if (page.length < PAGE_SIZE) return { episodes: out, complete: true };
+  }
+  return { episodes: out, complete: false };
+}
+
 /** Recluster the fleet and resolve once the new clusters are ready. */
 export async function recomputeClusters(): Promise<Cluster[]> {
   const accepted = await api.startRecompute();
@@ -199,16 +236,29 @@ export const SURFACE_BLURB: Record<string, string> = {
   motor: "Contact force spiked or flatlined — the physical interaction went wrong.",
 };
 
+/** The plotted hex for each failure surface.
+ *
+ * Three steps of one green ramp — as far apart as a mono-green system allows. Validated
+ * against the sage canvas for lightness, chroma, and both CVD and normal-vision separation;
+ * the lightest step sits under 3:1, so every mark that uses these is paired with a label.
+ * Components import these for SVG/canvas marks, where a Tailwind class cannot reach.
+ */
+export const SURFACE_HEX: Record<string, string> = {
+  perception: "#7ac98a",
+  grounding: "#00a63a",
+  motor: "#0b6b45",
+};
+
 export function surfaceColor(surface: string | null): string {
   switch (surface) {
     case "perception":
-      return "bg-perception/10 text-perception";
+      return "border-lichen bg-bone-white text-forest-ink";
     case "grounding":
-      return "bg-grounding/10 text-grounding";
+      return "border-lichen bg-bone-white text-forest-ink";
     case "motor":
-      return "bg-motor/10 text-motor";
+      return "border-lichen bg-bone-white text-forest-ink";
     default:
-      return "bg-linen text-ash border border-mist";
+      return "border border-lichen bg-bone-white text-slate-smoke";
   }
 }
 
@@ -235,7 +285,7 @@ export function surfaceVerdict(
     return {
       kind: "none",
       label: "no failure",
-      tone: "bg-ok/10 text-ok",
+      tone: "border border-lichen bg-bone-white text-forest-ink",
       hint: "Episode succeeded — there is no failure surface to attribute.",
     };
   }
@@ -243,7 +293,7 @@ export function surfaceVerdict(
     return {
       kind: "unclassified",
       label: "unclassified",
-      tone: "bg-linen text-ash border border-mist",
+      tone: "border border-lichen bg-bone-white text-slate-smoke",
       hint: "Not classified yet — run Classify on the episode.",
     };
   }
@@ -251,7 +301,7 @@ export function surfaceVerdict(
     return {
       kind: "inconclusive",
       label: "inconclusive",
-      tone: "bg-linen text-ash border border-mist",
+      tone: "border border-lichen bg-bone-white text-slate-smoke",
       hint: "No heuristic fired. The surface shown by the classifier is a tie-break, not a finding.",
     };
   }

@@ -2,114 +2,216 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: light;
+/*
+ * Component classes live in @layer components so Tailwind sorts them BEFORE the utility
+ * layer. Defined after `@tailwind utilities` instead, `.btn-filled { display: inline-flex }`
+ * silently beat `.hidden` at equal specificity and the nav's responsive hide stopped
+ * working — the button kept its box at phone width and pushed the page into a
+ * horizontal scroll.
+ */
+
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --canvas: #e0e0e0;
+    --ink: #09352e;
+    --hairline: #cad3d2;
+  }
+
+  body {
+    @apply bg-sage-paper text-forest-ink font-denim antialiased;
+    font-size: 14px;
+    letter-spacing: 0.012em;
+    font-feature-settings: "liga" 0;
+  }
+
+  /* The sage canvas is structural — never let a white page background show through. */
+  html {
+    background-color: var(--canvas);
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-deep-fern/50 ring-offset-2 ring-offset-sage-paper rounded-tag;
+  }
 }
 
-body {
-  @apply bg-parchment text-charcoal font-sans antialiased;
-  letter-spacing: -0.01em;
-}
+@layer components {
+  /* ── Type voices ───────────────────────────────────────────────────────────
+   * cinetype is ALL-CAPS only. Its +0.30em tracking is the system's signature and
+   * becomes illegible in sentence case or past two or three words.
+   */
+  .cinetype {
+    @apply font-cinetype uppercase;
+    letter-spacing: 0.30em;
+    font-feature-settings: "liga" 0;
+  }
 
-/* Keyboard focus is visible everywhere; pointer focus stays quiet. */
-:focus-visible {
-  @apply outline-none ring-2 ring-signal/60 ring-offset-2 ring-offset-parchment rounded-sm;
-}
+  /* muoto — labels, captions, axis ticks. Tight tracking makes it instrument-like. */
+  .muoto {
+    @apply font-muoto;
+    letter-spacing: -0.01em;
+    font-feature-settings: "liga" 0;
+  }
 
-/* Display type — the serif voice of the brand. Weight 400, never heavier. */
-.serif {
-  @apply font-serif font-normal;
-  font-feature-settings: "liga" 0;
-}
+  /* ── Canvas texture ────────────────────────────────────────────────────────
+   * Ambient dotted gridlines. Encouraged by the system even where no chart is drawn —
+   * it is what makes the page read as graph paper rather than a blank field.
+   */
+  .gridded {
+    background-image: radial-gradient(var(--hairline) 0.5px, transparent 0.5px);
+    background-size: 16px 16px;
+    background-position: -1px -1px;
+  }
 
-/* ── Surfaces ─────────────────────────────────────────────── */
-.card {
-  @apply bg-paper border border-mist rounded-xl shadow-subtle;
-}
+  .gridded-fine {
+    background-image: radial-gradient(var(--hairline) 0.5px, transparent 0.5px);
+    background-size: 8px 8px;
+  }
 
-.card-flat {
-  @apply bg-paper border border-mist rounded-2xl;
-}
+  /* ── Surfaces ──────────────────────────────────────────────────────────────
+   * Bone white on the sage canvas, lifted only by a 0.5px inset ring.
+   */
+  .card {
+    @apply rounded-card bg-bone-white shadow-hairline;
+  }
 
-/* A card that is itself a link — lifts toward the signal hue on hover. */
-.card-link {
-  @apply card transition duration-150 hover:border-signal/50 hover:shadow-atmospheric;
-}
+  .card-inset {
+    @apply rounded-card bg-ash-gray shadow-hairline;
+  }
 
-/* ── Pills ────────────────────────────────────────────────── */
-.pill {
-  @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-caption font-medium;
-}
+  /* A card that is itself a link. The hover lift stays under 6% opacity — anything
+     heavier breaks the flat herbarium feel. */
+  .card-link {
+    @apply card transition duration-150;
+  }
+  .card-link:hover {
+    @apply shadow-lift;
+  }
 
-/* ── Buttons ──────────────────────────────────────────────── */
-/* Neutral outlined action — the workhorse. */
-.btn {
-  @apply inline-flex items-center justify-center gap-2 min-w-[92px] rounded-lg border border-twilight bg-transparent px-3 py-1.5 text-body-sm font-medium text-twilight hover:bg-linen disabled:opacity-40 disabled:cursor-not-allowed transition;
-}
+  /* The rare dark block, for terminal-feeling content. */
+  .card-dark {
+    @apply rounded-card bg-charcoal-bark text-bone-white;
+  }
 
-/* Primary outlined CTA — the chromatic border is the whole identity. */
-.btn-accent {
-  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-signal bg-transparent px-3 py-1.5 text-body-sm font-medium text-signal hover:bg-signal/5 disabled:opacity-40 disabled:cursor-not-allowed transition;
-}
+  /* ── Specimen tag ──────────────────────────────────────────────────────────
+   * The stamped label: 4px radius, hairline border, cinetype at wide tracking.
+   */
+  .tag {
+    @apply inline-flex items-center rounded-tag border border-lichen bg-transparent px-2 py-0.5 text-[11px] leading-[1.5] text-forest-ink;
+    @apply font-cinetype uppercase;
+    letter-spacing: 0.22em;
+  }
 
-/* Sole filled variant — used sparingly for high-emphasis moments. */
-.btn-filled {
-  @apply inline-flex items-center justify-center gap-2 min-w-[120px] rounded-lg border border-twilight bg-dusk px-4 py-2 text-body-sm font-medium text-paper hover:bg-twilight disabled:opacity-40 disabled:cursor-not-allowed transition;
-}
+  .tag-ink {
+    @apply border-forest-ink;
+  }
 
-/* Quiet tertiary action — no border until you reach for it. */
-.btn-ghost {
-  @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1 text-caption font-medium text-ash hover:border-mist hover:text-charcoal disabled:opacity-40 transition;
-}
+  /* Soft data pill — used where a tag would be too shouty (row cells, inline counts). */
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-tag px-2 py-0.5 text-caption;
+    @apply font-muoto;
+    letter-spacing: -0.01em;
+  }
 
-/* ── Form fields — paper-form feel: linen fill, single bottom line ── */
-.field {
-  @apply bg-linen text-charcoal border-b border-charcoal px-2.5 py-1.5 text-body-sm rounded-none focus:outline-none focus:border-signal transition;
-}
+  /* Floating round chip, pinned over a plot. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-forest-ink px-3 py-1.5 text-bone-white;
+    @apply font-muoto text-[12px] font-medium;
+    letter-spacing: -0.01em;
+  }
 
-/* ── Tables ───────────────────────────────────────────────── */
-/* Wrapper keeps wide tables scrollable instead of blowing out the page on mobile. */
-.table-scroll {
-  @apply w-full overflow-x-auto;
-}
+  /* ── Buttons ───────────────────────────────────────────────────────────────
+   * Exactly one filled action per screen. Everything else is outlined or ghost.
+   */
+  .btn-filled {
+    @apply inline-flex items-center justify-center gap-2 rounded-btn bg-moss px-5 py-2.5 text-body font-medium text-forest-ink transition;
+    @apply hover:brightness-[0.97] disabled:cursor-not-allowed disabled:opacity-40;
+  }
 
-table.data {
-  @apply w-full text-body-sm border-collapse;
-}
-table.data th {
-  @apply text-left text-ash font-medium uppercase tracking-wide text-caption px-3 py-2.5 border-b border-mist whitespace-nowrap;
-}
-table.data td {
-  @apply px-3 py-3 border-b border-mist;
-}
-table.data tbody tr {
-  @apply transition-colors;
-}
-table.data tbody tr:hover td {
-  @apply bg-linen;
-}
-/* Row-as-link: the whole row is the target, the id cell just carries the affordance. */
-table.data tr.row-link:hover .row-link-label {
-  @apply text-cerulean underline;
-}
-table.data tbody tr:last-child td {
-  @apply border-b-0;
-}
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-btn border-0 bg-transparent px-5 py-2.5 text-body font-medium text-forest-ink shadow-hairline-ink transition;
+    @apply hover:bg-forest-ink/[0.04] disabled:cursor-not-allowed disabled:opacity-40;
+  }
 
-/* ── Loading skeletons ────────────────────────────────────── */
-.skeleton {
-  @apply relative overflow-hidden rounded-md bg-mist/50;
-}
-.skeleton::after {
-  content: "";
-  @apply absolute inset-0;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.65) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  animation: shimmer 1.4s infinite;
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-btn border-0 bg-transparent px-3 py-1.5 text-body text-slate-smoke transition;
+    @apply hover:text-forest-ink disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  /* Bracketed inline link — the system's annotation voice. */
+  .link {
+    @apply text-deep-fern transition hover:underline;
+  }
+
+  /* ── Form fields ───────────────────────────────────────────────────────────*/
+  .field {
+    @apply w-full rounded-tag border-0 bg-bone-white px-3 py-2 text-body text-forest-ink shadow-hairline transition;
+    @apply placeholder:text-slate-smoke focus:outline-none;
+  }
+  .field:focus {
+    @apply shadow-hairline-ink;
+  }
+
+  select.field {
+    @apply cursor-pointer pr-8;
+  }
+
+  /* ── Tables ────────────────────────────────────────────────────────────────*/
+  .table-scroll {
+    @apply w-full overflow-x-auto;
+  }
+
+  table.data {
+    @apply w-full border-collapse text-body;
+  }
+  table.data th {
+    @apply whitespace-nowrap px-3 py-2.5 text-left text-[11px] text-slate-smoke;
+    @apply font-cinetype uppercase;
+    letter-spacing: 0.18em;
+    box-shadow: rgb(202, 211, 210) 0px -1px 0px 0px inset;
+  }
+  table.data td {
+    @apply px-3 py-3;
+    box-shadow: rgb(224, 229, 229) 0px -1px 0px 0px inset;
+  }
+  table.data tbody tr {
+    @apply transition-colors;
+  }
+  table.data tbody tr:hover td {
+    @apply bg-ash-gray/60;
+  }
+  table.data tr.row-link:hover .row-link-label {
+    @apply text-deep-fern underline;
+  }
+  table.data tbody tr:last-child td {
+    box-shadow: none;
+  }
+
+  /* ── Loading skeletons ─────────────────────────────────────────────────────*/
+  .skeleton {
+    @apply relative overflow-hidden rounded-tag bg-lichen/50;
+  }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.7) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: shimmer 1.4s infinite;
+  }
+
+  /* ── Version stamp ─────────────────────────────────────────────────────────
+   * Rotated side-margin mark, like a document revision note.
+   */
+  .version-stamp {
+    @apply font-muoto text-[11px] text-slate-smoke;
+    writing-mode: vertical-rl;
+    letter-spacing: 0.18em;
+  }
 }
 
 @keyframes shimmer {
@@ -119,6 +221,20 @@ table.data tbody tr:last-child td {
   to {
     transform: translateX(100%);
   }
+}
+
+/* Range input tuned to the system (the default accent is far too saturated here). */
+input[type="range"] {
+  @apply h-1 w-full cursor-pointer appearance-none rounded-full bg-lichen;
+  accent-color: #0b6b45;
+}
+input[type="range"]::-webkit-slider-thumb {
+  @apply h-3.5 w-3.5 appearance-none rounded-full bg-bone-white;
+  box-shadow: 0 0 0 1px #09352e;
+}
+input[type="range"]::-moz-range-thumb {
+  @apply h-3.5 w-3.5 rounded-full border-0 bg-bone-white;
+  box-shadow: 0 0 0 1px #09352e;
 }
 
 @media (prefers-reduced-motion: reduce) {

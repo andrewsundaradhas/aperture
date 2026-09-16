@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, EpisodeSummary, SURFACES } from "@/lib/api";
+import { EpisodeSummary, SURFACES, fetchAllEpisodes, surfaceVerdict } from "@/lib/api";
 import {
   Confidence,
   Empty,
@@ -13,6 +13,7 @@ import {
   SurfacePill,
   TableSkeleton,
 } from "@/components/ui";
+import { SurfaceMix } from "@/components/SurfaceMix";
 
 const OUTCOMES = ["", "fail", "success"];
 
@@ -30,19 +31,20 @@ export default function EpisodesPage() {
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    api.listEpisodes().then(setAllEpisodes).catch(() => {});
+    fetchAllEpisodes()
+      .then((r) => setAllEpisodes(r.episodes))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api
-      .listEpisodes({
-        surface: surface || undefined,
-        robot_id: robot || undefined,
-        outcome: outcome || undefined,
-      })
-      .then((rows) => {
+    fetchAllEpisodes({
+      surface: surface || undefined,
+      robot_id: robot || undefined,
+      outcome: outcome || undefined,
+    })
+      .then(({ episodes: rows }) => {
         if (cancelled) return;
         setEpisodes(rows);
         setError(null);
@@ -68,27 +70,49 @@ export default function EpisodesPage() {
     );
   }, [episodes, query]);
 
+  // The mix of what is currently on screen, so the strip tracks the filters.
+  const mix = useMemo(() => {
+    const attributed = visible.filter(
+      (e) =>
+        surfaceVerdict(e.surface, e.classification_confidence, e.outcome).kind === "surface",
+    );
+    const counts = Object.fromEntries(
+      SURFACES.map((s) => [s, attributed.filter((e) => e.surface === s).length]),
+    ) as Record<string, number>;
+    return { counts, total: attributed.length };
+  }, [visible]);
+
   const filtered = !!(surface || robot || outcome || query);
 
+  function clearAll() {
+    setSurface("");
+    setRobot("");
+    setOutcome("");
+    setQuery("");
+  }
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
         title="Episodes"
         subtitle="Every ingested episode, its failure surface and confidence."
-      >
+      />
+
+      {/* Filters in one row above the data, per the system's control-panel layout. */}
+      <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search instruction or id"
           aria-label="Search episodes by instruction or id"
-          className="field w-52"
+          className="field w-56"
         />
         <select
           value={surface}
           onChange={(e) => setSurface(e.target.value)}
           aria-label="Filter by failure surface"
-          className="field"
+          className="field w-auto"
         >
           <option value="">all surfaces</option>
           {SURFACES.map((s) => (
@@ -101,7 +125,7 @@ export default function EpisodesPage() {
           value={outcome}
           onChange={(e) => setOutcome(e.target.value)}
           aria-label="Filter by outcome"
-          className="field"
+          className="field w-auto"
         >
           {OUTCOMES.map((o) => (
             <option key={o} value={o}>
@@ -113,7 +137,7 @@ export default function EpisodesPage() {
           value={robot}
           onChange={(e) => setRobot(e.target.value)}
           aria-label="Filter by robot"
-          className="field"
+          className="field w-auto"
         >
           <option value="">all robots</option>
           {robots.map((r) => (
@@ -122,9 +146,28 @@ export default function EpisodesPage() {
             </option>
           ))}
         </select>
-      </PageHeader>
+        {filtered && (
+          <button onClick={clearAll} className="btn-ghost">
+            Clear
+          </button>
+        )}
+        <span className="muoto ml-auto text-caption tabular-nums text-slate-smoke">
+          {visible.length} / {allEpisodes.length} episodes
+        </span>
+      </div>
 
       <ErrorNote error={error} />
+
+      {!loading && !error && mix.total > 0 && (
+        <div className="card p-5">
+          <div className="cinetype text-[11px] text-slate-smoke">
+            Surface mix · current selection
+          </div>
+          <div className="mt-4">
+            <SurfaceMix counts={mix.counts} total={mix.total} />
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <TableSkeleton />
@@ -135,88 +178,77 @@ export default function EpisodesPage() {
           {filtered ? (
             <>
               No episodes match these filters.{" "}
-              <button
-                onClick={() => {
-                  setSurface("");
-                  setRobot("");
-                  setOutcome("");
-                  setQuery("");
-                }}
-                className="text-signal hover:underline"
-              >
-                Clear all
+              <button onClick={clearAll} className="link">
+                [ clear all ]
               </button>
             </>
           ) : (
             <>
               No episodes yet. Seed the demo with{" "}
-              <span className="font-mono text-charcoal">python -m aperture.seed</span>.
+              <span className="muoto text-forest-ink">python -m aperture.seed</span>.
             </>
           )}
         </Empty>
       ) : (
-        <>
-          <div className="card overflow-hidden">
-            <div className="table-scroll">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Episode</th>
-                    <th>Instruction</th>
-                    <th>Format</th>
-                    <th>Outcome</th>
-                    <th>Surface</th>
-                    <th>Confidence</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((e) => (
-                    <tr
-                      key={e.id}
-                      // The row carried a pointer cursor while only the id cell navigated.
-                      // Make the whole row the target it already looked like.
-                      className="row-link cursor-pointer"
-                      onClick={() => router.push(`/episodes/${e.id}`)}
+        <div className="card overflow-hidden">
+          <div className="table-scroll">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Episode</th>
+                  <th>Instruction</th>
+                  <th>Format</th>
+                  <th>Outcome</th>
+                  <th>Surface</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((e) => (
+                  <tr
+                    key={e.id}
+                    // The row carried a pointer cursor while only the id cell navigated.
+                    // Make the whole row the target it already looked like.
+                    className="row-link cursor-pointer"
+                    onClick={() => router.push(`/episodes/${e.id}`)}
+                  >
+                    <td>
+                      <Link
+                        href={`/episodes/${e.id}`}
+                        onClick={(ev) => ev.stopPropagation()}
+                        className="row-link-label muoto text-deep-fern"
+                      >
+                        {e.id.slice(0, 8)}
+                      </Link>
+                    </td>
+                    <td
+                      className="max-w-xs truncate text-forest-ink"
+                      title={e.instruction ?? ""}
                     >
-                      <td>
-                        <Link
-                          href={`/episodes/${e.id}`}
-                          onClick={(ev) => ev.stopPropagation()}
-                          className="row-link-label font-mono text-signal"
-                        >
-                          {e.id.slice(0, 8)}
-                        </Link>
-                      </td>
-                      <td className="max-w-xs truncate text-charcoal" title={e.instruction ?? ""}>
-                        {e.instruction ?? "—"}
-                      </td>
-                      <td className="font-mono text-caption uppercase text-ash">
-                        {e.source_format}
-                      </td>
-                      <td>
-                        <OutcomePill outcome={e.outcome} />
-                      </td>
-                      <td>
-                        <SurfacePill
-                          surface={e.surface}
-                          confidence={e.classification_confidence}
-                          outcome={e.outcome}
-                        />
-                      </td>
-                      <td>
-                        <Confidence value={e.classification_confidence} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      {e.instruction ?? "—"}
+                    </td>
+                    <td className="muoto text-caption uppercase text-slate-smoke">
+                      {e.source_format}
+                    </td>
+                    <td>
+                      <OutcomePill outcome={e.outcome} />
+                    </td>
+                    <td>
+                      <SurfacePill
+                        surface={e.surface}
+                        confidence={e.classification_confidence}
+                        outcome={e.outcome}
+                      />
+                    </td>
+                    <td>
+                      <Confidence value={e.classification_confidence} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <p className="text-caption text-ash">
-            {visible.length} of {allEpisodes.length} episode
-            {allEpisodes.length === 1 ? "" : "s"}
-          </p>
-        </>
+        </div>
       )}
     </div>
   );

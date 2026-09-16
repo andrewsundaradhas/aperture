@@ -7,26 +7,33 @@ import {
   Cluster,
   EpisodeSummary,
   SURFACES,
-  SURFACE_BLURB,
+  fetchAllEpisodes,
   surfaceVerdict,
 } from "@/lib/api";
-import { Empty, ErrorNote, Skeleton, SurfacePill } from "@/components/ui";
-
-const SURFACE_BAR: Record<string, string> = {
-  perception: "bg-perception",
-  grounding: "bg-grounding",
-  motor: "bg-motor",
-};
+import {
+  Empty,
+  ErrorNote,
+  SectionHead,
+  Skeleton,
+  StatTile,
+} from "@/components/ui";
+import { FleetScatter } from "@/components/FleetScatter";
+import { SurfaceMix } from "@/components/SurfaceMix";
+import { ClusterBars } from "@/components/ClusterBars";
+import { PipelineTrack } from "@/components/PipelineTrack";
 
 export default function Home() {
   const [episodes, setEpisodes] = useState<EpisodeSummary[] | null>(null);
   const [clusters, setClusters] = useState<Cluster[] | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [truncated, setTruncated] = useState(false);
 
   useEffect(() => {
-    Promise.all([api.listEpisodes(), api.listClusters()])
+    // The whole fleet, not page one — every reading on this page is a fleet-wide total.
+    Promise.all([fetchAllEpisodes(), api.listClusters()])
       .then(([e, c]) => {
-        setEpisodes(e);
+        setEpisodes(e.episodes);
+        setTruncated(!e.complete);
         setClusters(c);
       })
       .catch(setError);
@@ -53,46 +60,110 @@ export default function Home() {
     };
   }, [episodes]);
 
-  const topClusters = useMemo(() => (clusters ?? []).slice(0, 3), [clusters]);
+  const clustered = useMemo(
+    () => (clusters ?? []).reduce((n, c) => n + c.episode_count, 0),
+    [clusters],
+  );
 
   return (
-    <div className="space-y-16">
-      <section className="max-w-3xl space-y-6 pt-4">
-        <span className="pill border border-mist bg-linen text-ash">
-          Ingestion → Evaluation → Interpretability → Loop closure
-        </span>
-        <h1 className="serif text-heading-lg text-graphite">
-          The evaluation &amp; interpretability layer for VLA robot policies
-        </h1>
-        <p className="max-w-2xl text-subheading font-normal leading-relaxed text-ash">
-          Aperture classifies <em className="not-italic text-charcoal">why</em> a policy failed,
-          attributes it with interpretability techniques, clusters similar failures across a
-          fleet, exports a scoped fine-tune dataset, and verifies the fix worked after
-          retraining.
-        </p>
-        <div className="flex items-center gap-3 pt-1">
-          <Link href="/episodes" className="btn-accent">
-            Browse episodes
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-signal text-[10px] leading-none">
-              →
-            </span>
-          </Link>
-          <Link href="/clusters" className="btn">
-            View clusters
-          </Link>
+    <div className="space-y-section">
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
+      <section className="space-y-10 pt-2">
+        <div className="grid gap-10 lg:grid-cols-[1.3fr_1fr] lg:items-start">
+          <div className="space-y-5">
+            <span className="tag tag-ink">Evaluation &amp; interpretability</span>
+            <h1 className="max-w-2xl text-display font-medium text-forest-ink">
+              Why the policy failed, not just that it did.
+            </h1>
+            <p className="max-w-xl text-body-lg text-slate-smoke">
+              Aperture classifies the failure surface behind every episode, attributes it with
+              interpretability techniques, clusters recurring modes across a fleet, exports a
+              scoped fine-tune set, and verifies the retrain actually worked.
+            </p>
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <Link href="/episodes" className="btn-filled">
+                Browse episodes
+              </Link>
+              <Link href="/clusters" className="btn">
+                View clusters
+              </Link>
+            </div>
+          </div>
+
+          {/* The floating info card, upper-right, as the system specifies. */}
+          <aside className="card gridded-fine p-5">
+            <div className="cinetype text-[11px] text-slate-smoke">Reading this page</div>
+            <div className="mt-3 h-px w-full bg-lichen" aria-hidden />
+            <dl className="mt-3 space-y-3 text-body">
+              <div>
+                <dt className="muoto text-caption text-slate-smoke">the plot</dt>
+                <dd className="text-forest-ink">
+                  Every episode is a mark. Height is how confident the classifier is in its
+                  verdict.
+                </dd>
+              </div>
+              <div>
+                <dt className="muoto text-caption text-slate-smoke">filled vs hollow</dt>
+                <dd className="text-forest-ink">
+                  A filled mark carries an attributed failure surface. A hollow one does not —
+                  it succeeded, or nothing fired.
+                </dd>
+              </div>
+              <div>
+                <dt className="muoto text-caption text-slate-smoke">the point</dt>
+                <dd className="text-forest-ink">
+                  Marks drifting to the top are explained failures. Everything in the lane below
+                  is still unexplained.
+                </dd>
+              </div>
+            </dl>
+          </aside>
         </div>
       </section>
 
       <ErrorNote error={error} />
 
+      {/* ── The fleet, plotted ───────────────────────────────────────────── */}
       {!error && (
-        <section className="space-y-4">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 className="serif text-heading-sm text-graphite">Fleet at a glance</h2>
-            <Link href="/episodes" className="text-body-sm text-signal hover:underline">
-              All episodes →
-            </Link>
-          </div>
+        <section className="space-y-5">
+          <SectionHead
+            left="fleet scatter"
+            right="confidence ↑"
+            title="Every episode, plotted"
+            action={
+              <Link href="/episodes" className="link text-body">
+                [ all episodes ]
+              </Link>
+            }
+          />
+
+          {!episodes ? (
+            <Skeleton className="h-[420px] w-full" />
+          ) : episodes.length === 0 ? (
+            <Empty>
+              No episodes ingested yet. Seed the demo with{" "}
+              <span className="muoto text-forest-ink">
+                cd apps/api &amp;&amp; python -m aperture.seed
+              </span>
+              .
+            </Empty>
+          ) : (
+            <>
+              <FleetScatter episodes={episodes} />
+              {truncated && (
+                <p className="muoto text-caption text-slate-smoke">
+                  Showing the most recent {episodes.length} episodes — the fleet has more.
+                </p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {/* ── Fleet at a glance ────────────────────────────────────────────── */}
+      {!error && (
+        <section className="space-y-5">
+          <SectionHead left="fleet totals" right="measured" title="At a glance" />
 
           {!stats ? (
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -103,151 +174,127 @@ export default function Home() {
                 </div>
               ))}
             </div>
-          ) : stats.total === 0 ? (
-            <Empty>
-              No episodes ingested yet. Seed the demo with{" "}
-              <span className="font-mono text-charcoal">
-                cd apps/api &amp;&amp; python -m aperture.seed
-              </span>
-              .
-            </Empty>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-                <Stat label="Episodes" value={stats.total} note={`${stats.robots} robots`} />
-                <Stat
+                <StatTile
+                  label="Episodes"
+                  value={stats.total}
+                  note={`${stats.robots} robots reporting`}
+                />
+                <StatTile
                   label="Failures"
                   value={stats.failures}
-                  note={`${Math.round((stats.failures / stats.total) * 100)}% of episodes`}
+                  note={
+                    stats.total
+                      ? `${Math.round((stats.failures / stats.total) * 100)}% of episodes`
+                      : "—"
+                  }
                 />
-                <Stat
+                <StatTile
                   label="Attributed"
                   value={stats.attributed}
                   note={
                     stats.unattributed > 0
-                      ? `${stats.unattributed} inconclusive`
+                      ? `${stats.unattributed} still inconclusive`
                       : "every failure has a surface"
                   }
                 />
-                <Stat
+                <StatTile
                   label="Clusters"
                   value={clusters?.length ?? 0}
                   note="recurring failure modes"
                 />
               </div>
 
-              <div className="card space-y-4 p-6">
-                <div className="text-caption uppercase tracking-wide text-ash">
-                  Where failures land
+              <div className="card p-6">
+                <div className="cinetype text-[11px] text-slate-smoke">Where failures land</div>
+                <div className="mt-4">
+                  <SurfaceMix counts={stats.bySurface} total={stats.attributed} />
                 </div>
-                {stats.attributed === 0 ? (
-                  <p className="text-body-sm text-ash">
-                    No failure has a confident surface yet. Open an episode and run{" "}
-                    <span className="text-charcoal">Classify</span>.
-                  </p>
-                ) : (
-                  <>
-                    {/* One bar, three segments — the fleet's failure mix at a glance. */}
-                    <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-mist/60">
-                      {SURFACES.map((s) =>
-                        stats.bySurface[s] ? (
-                          <div
-                            key={s}
-                            className={SURFACE_BAR[s]}
-                            style={{ width: `${(stats.bySurface[s] / stats.attributed) * 100}%` }}
-                            title={`${s}: ${stats.bySurface[s]}`}
-                          />
-                        ) : null,
-                      )}
-                    </div>
-                    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      {SURFACES.map((s) => (
-                        <li key={s} className="space-y-1">
-                          <div className="flex items-center gap-2">
-                            <SurfacePill surface={s} confidence={1} />
-                            <span className="ml-auto font-mono text-body-sm tabular-nums text-graphite">
-                              {stats.bySurface[s]}
-                            </span>
-                          </div>
-                          <p className="text-caption leading-relaxed text-ash">
-                            {SURFACE_BLURB[s]}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
               </div>
             </>
           )}
         </section>
       )}
 
-      {!error && topClusters.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-baseline justify-between gap-4">
-            <h2 className="serif text-heading-sm text-graphite">Largest failure modes</h2>
-            <Link href="/clusters" className="text-body-sm text-signal hover:underline">
-              All clusters →
-            </Link>
-          </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            {topClusters.map((c) => (
-              <Link key={c.id} href={`/clusters/${c.id}`} className="card-link group block p-5">
-                <div className="flex items-center justify-between">
-                  <SurfacePill surface={c.dominant_surface} />
-                  <span className="serif text-heading-sm tabular-nums text-graphite">
-                    {c.episode_count}
-                  </span>
-                </div>
-                <div className="mt-3 font-mono text-body-sm text-charcoal transition group-hover:text-cerulean">
-                  {c.label}
-                </div>
-                <p className="mt-1 text-caption text-ash">
-                  Export a scoped dataset and verify the retrain →
-                </p>
+      {/* ── Failure modes ────────────────────────────────────────────────── */}
+      {!error && (clusters?.length ?? 0) > 0 && (
+        <section className="space-y-5">
+          <SectionHead
+            left="cluster size"
+            right="largest first"
+            title="Recurring failure modes"
+            action={
+              <Link href="/clusters" className="link text-body">
+                [ all clusters ]
               </Link>
-            ))}
+            }
+          />
+          <ClusterBars clusters={clusters!.slice(0, 6)} />
+        </section>
+      )}
+
+      {/* ── The loop ─────────────────────────────────────────────────────── */}
+      {!error && stats && (
+        <section className="space-y-6">
+          <SectionHead left="chaos" right="clarity" title="Closing the loop" />
+          <div className="card p-8">
+            <PipelineTrack
+              stages={[
+                {
+                  label: "Ingestion",
+                  value: String(stats.total),
+                  note: "RLDS + LeRobot v3 episodes",
+                },
+                {
+                  label: "Evaluation",
+                  value: String(stats.attributed),
+                  note: "failure surfaces attributed",
+                },
+                {
+                  label: "Clustering",
+                  value: String(clustered),
+                  note: "episodes in a failure mode",
+                },
+                {
+                  label: "Loop closure",
+                  value: String(clusters?.length ?? 0),
+                  note: "modes ready to verify",
+                },
+              ]}
+            />
           </div>
         </section>
       )}
 
+      {/* ── Entry points ─────────────────────────────────────────────────── */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Link href="/episodes" className="card-link group block p-6">
-          <div className="mb-2 text-caption uppercase tracking-wide text-ash">
+          <div className="cinetype text-[11px] text-slate-smoke">
             Ingestion → Evaluation → Interpretability
           </div>
-          <div className="serif text-heading-sm text-graphite transition group-hover:text-signal">
+          <div className="mt-3 text-heading-sm font-medium text-forest-ink group-hover:text-deep-fern">
             Episodes
           </div>
-          <p className="mt-2 text-body-sm leading-relaxed text-ash">
+          <p className="mt-2 max-w-md text-body leading-relaxed text-slate-smoke">
             Every ingested episode with its failure surface, confidence trace, attention map,
             and instruction-sensitivity probe.
           </p>
         </Link>
         <Link href="/clusters" className="card-link group block p-6">
-          <div className="mb-2 text-caption uppercase tracking-wide text-ash">
+          <div className="cinetype text-[11px] text-slate-smoke">
             Clustering → Export → Loop closure
           </div>
-          <div className="serif text-heading-sm text-graphite transition group-hover:text-signal">
+          <div className="mt-3 text-heading-sm font-medium text-forest-ink group-hover:text-deep-fern">
             Failure clusters
           </div>
-          <p className="mt-2 text-body-sm leading-relaxed text-ash">
+          <p className="mt-2 max-w-md text-body leading-relaxed text-slate-smoke">
             Fleet-level failure patterns. Export a scoped dataset and verify the before/after
             success-rate delta after a retrain.
           </p>
         </Link>
       </section>
-    </div>
-  );
-}
-
-function Stat({ label, value, note }: { label: string; value: number; note: string }) {
-  return (
-    <div className="card p-5">
-      <div className="text-caption uppercase tracking-wide text-ash">{label}</div>
-      <div className="serif mt-1 text-heading tabular-nums text-graphite">{value}</div>
-      <div className="mt-1 text-caption text-fog">{note}</div>
     </div>
   );
 }

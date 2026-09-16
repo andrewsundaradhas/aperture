@@ -1,16 +1,19 @@
 "use client";
 
 import { AMBIGUOUS_MARGIN, Classification, Frame, SURFACES, SURFACE_BLURB } from "@/lib/api";
+import { Mark } from "@/components/ui";
 
 const BAR_TONE: Record<string, string> = {
   perception: "bg-perception",
   grounding: "bg-grounding",
   motor: "bg-motor",
 };
+// Text stays in ink tokens and never wears the series colour — the mark beside it carries
+// identity. Two of the three surface greens would also fail text contrast on this canvas.
 const TEXT_TONE: Record<string, string> = {
-  perception: "text-perception",
-  grounding: "text-grounding",
-  motor: "text-motor",
+  perception: "text-forest-ink",
+  grounding: "text-forest-ink",
+  motor: "text-forest-ink",
 };
 
 function pct(v: number): string {
@@ -67,8 +70,8 @@ function evidenceLine(surface: string, ev: Record<string, any>, present: boolean
 export function HeuristicBreakdown({ classification }: { classification: Classification | null }) {
   if (!classification) {
     return (
-      <p className="text-body-sm text-ash">
-        Not classified yet. Run <span className="text-charcoal">Classify</span> to score the
+      <p className="text-body text-slate-smoke">
+        Not classified yet. Run <span className="text-forest-ink">Classify</span> to score the
         three failure heuristics against this episode.
       </p>
     );
@@ -94,29 +97,29 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
     <div className="space-y-4">
       <div className="space-y-1">
         {fired ? (
-          <p className="text-body-sm text-charcoal">
+          <p className="text-body text-forest-ink">
             Classified as{" "}
-            <span className={`font-medium ${TEXT_TONE[surface] ?? "text-charcoal"}`}>{surface}</span>{" "}
+            <span className="font-medium text-forest-ink">{surface}</span>{" "}
             at {pct(confidence)} confidence.{" "}
-            <span className="text-ash">{SURFACE_BLURB[surface]}</span>
+            <span className="text-slate-smoke">{SURFACE_BLURB[surface]}</span>
           </p>
         ) : (
-          <p className="text-body-sm text-charcoal">
+          <p className="text-body text-forest-ink">
             <span className="font-medium">No heuristic fired.</span>{" "}
-            <span className="text-ash">
+            <span className="text-slate-smoke">
               Every signal scored zero, so the surface below is the classifier&rsquo;s tie-break
               rather than a finding.
             </span>
           </p>
         )}
         {ambiguous && (
-          <p className="text-caption text-perception">
+          <p className="text-caption text-caution">
             Contested call — the runner-up is within {pct(margin!)}. Treat the surface as a
             hypothesis, not a conclusion.
           </p>
         )}
         {inferred && (
-          <p className="text-caption text-perception">
+          <p className="text-caption text-caution">
             Inferred by elimination — {inferred.reason} That is an argument from a missing
             signal, not positive evidence.
           </p>
@@ -132,27 +135,24 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
           return (
             <li key={s} className="space-y-1">
               <div className="flex items-center gap-2">
+<Mark surface={s} filled={present} size={9} />
                 <span
-                  className={`w-1.5 h-1.5 rounded-full ${present ? BAR_TONE[s] : "bg-fog"}`}
-                  aria-hidden
-                />
-                <span
-                  className={`text-body-sm ${won ? `font-medium ${TEXT_TONE[s]}` : "text-charcoal"}`}
+                  className={`text-body ${won ? "font-medium text-forest-ink" : "text-forest-ink"}`}
                 >
                   {s}
                 </span>
-                {won && <span className="pill bg-linen text-ash border border-mist">winner</span>}
-                <span className="ml-auto font-mono text-caption tabular-nums text-ash">
+                {won && <span className="tag">winner</span>}
+                <span className="muoto ml-auto text-caption tabular-nums text-slate-smoke">
                   {pct(c)}
                 </span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-mist/60">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-lichen">
                 <div
-                  className={`h-full ${present ? BAR_TONE[s] : "bg-fog"} ${won ? "" : "opacity-40"}`}
+                  className={`h-full rounded-full ${present ? BAR_TONE[s] : "bg-slate-smoke"} ${won ? "" : "opacity-40"}`}
                   style={{ width: `${Math.max(c * 100, c > 0 ? 2 : 0)}%` }}
                 />
               </div>
-              <div className={`text-caption ${present ? "text-ash" : "text-fog italic"}`}>
+              <div className={`text-caption ${present ? "text-slate-smoke" : "italic text-slate-smoke/70"}`}>
                 {evidenceLine(s, d.evidence ?? {}, present)}
               </div>
             </li>
@@ -160,12 +160,12 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
         })}
       </ul>
 
-      <div className="text-caption text-fog">
-        method: <span className="font-mono">{method}</span>
+      <div className="muoto text-caption text-slate-smoke">
+        method: <span className="text-forest-ink">{method}</span>
         {margin != null && (
           <>
             {" · "}margin over runner-up:{" "}
-            <span className="font-mono tabular-nums">{pct(margin)}</span>
+            <span className="tabular-nums text-forest-ink">{pct(margin)}</span>
           </>
         )}
       </div>
@@ -194,16 +194,16 @@ function LearnedBreakdown({
 
   return (
     <div className="space-y-4">
-      <p className="text-body-sm text-charcoal">
+      <p className="text-body text-forest-ink">
         Predicted{" "}
-        <span className={`font-medium ${TEXT_TONE[surface] ?? "text-charcoal"}`}>{surface}</span>{" "}
+        <span className="font-medium text-forest-ink">{surface}</span>{" "}
         at {pct(confidence)} confidence.{" "}
-        <span className="text-ash">
+        <span className="text-slate-smoke">
           From the trained failure head, over this episode&rsquo;s first frame image.
         </span>
       </p>
       {margin != null && margin < AMBIGUOUS_MARGIN && (
-        <p className="text-caption text-perception">
+        <p className="text-caption text-caution">
           Close call — the runner-up is within {pct(margin)}.
         </p>
       )}
@@ -212,22 +212,20 @@ function LearnedBreakdown({
         {ranked.map(({ s, p }) => (
           <li key={s} className="space-y-1">
             <div className="flex items-center gap-2">
-              <span className={`w-1.5 h-1.5 rounded-full ${BAR_TONE[s]}`} aria-hidden />
+              <Mark surface={s} size={9} />
               <span
-                className={`text-body-sm ${
-                  s === surface ? `font-medium ${TEXT_TONE[s]}` : "text-charcoal"
-                }`}
+                className={`text-body ${s === surface ? "font-medium" : ""} text-forest-ink`}
               >
                 {s}
               </span>
               {s === surface && (
-                <span className="pill bg-linen text-ash border border-mist">predicted</span>
+                <span className="tag">predicted</span>
               )}
-              <span className="ml-auto font-mono text-caption tabular-nums text-ash">{pct(p)}</span>
+              <span className="muoto ml-auto text-caption tabular-nums text-slate-smoke">{pct(p)}</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-mist/60">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-lichen">
               <div
-                className={`h-full ${BAR_TONE[s]} ${s === surface ? "" : "opacity-40"}`}
+                className={`h-full rounded-full ${BAR_TONE[s]} ${s === surface ? "" : "opacity-40"}`}
                 style={{ width: `${Math.max(p * 100, p > 0 ? 2 : 0)}%` }}
               />
             </div>
@@ -235,8 +233,8 @@ function LearnedBreakdown({
         ))}
       </ul>
 
-      <p className="text-caption text-fog">
-        method: <span className="font-mono">learned</span> · one frame, no heuristic signals —
+      <p className="muoto text-caption text-slate-smoke">
+        method: <span className="text-forest-ink">learned</span> · one frame, no heuristic signals —
         read the attention map below for where it looked.
       </p>
     </div>
@@ -251,7 +249,7 @@ function LearnedBreakdown({
 export function SubgoalTrack({ frames }: { frames: Frame[] }) {
   const seq = frames.map((f) => f.subgoal).filter((s): s is string => !!s);
   if (!seq.length) {
-    return <p className="text-caption text-fog italic">No sub-goal tokens in this episode.</p>;
+    return <p className="text-caption italic text-slate-smoke">No sub-goal tokens in this episode.</p>;
   }
 
   const blocks: { subgoal: string; count: number; reissue: boolean }[] = [];
@@ -273,34 +271,31 @@ export function SubgoalTrack({ frames }: { frames: Frame[] }) {
         {blocks.map((b, i) => (
           <span key={i} className="flex items-center gap-1.5">
             {i > 0 && (
-              <span className="text-fog" aria-hidden>
+              <span className="text-slate-smoke" aria-hidden>
                 &rsaquo;
               </span>
             )}
             <span
-              className={`pill ${
-                b.reissue
-                  ? "bg-grounding/10 text-grounding"
-                  : "bg-linen text-charcoal border border-mist"
-              }`}
+              className="pill border border-lichen bg-bone-white text-forest-ink"
               title={
                 b.reissue
                   ? `"${b.subgoal}" re-issued after the policy had already moved on`
                   : `${b.count} frame${b.count === 1 ? "" : "s"}`
               }
             >
+              {b.reissue && <Mark surface="grounding" size={8} />}
               {b.subgoal}
-              <span className="ml-1 font-mono text-fog">&times;{b.count}</span>
+              <span className="ml-1 text-slate-smoke">&times;{b.count}</span>
             </span>
           </span>
         ))}
       </div>
-      <p className="text-caption text-ash">
+      <p className="text-caption text-slate-smoke">
         {blocks.length} block{blocks.length === 1 ? "" : "s"}
         {reissues > 0 ? (
           <>
             {" · "}
-            <span className="text-grounding">{reissues} re-issued</span> — the replanning signal
+            <span className="text-forest-ink">{reissues} re-issued</span> — the replanning signal
             behind a grounding verdict
           </>
         ) : (

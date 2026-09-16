@@ -44,35 +44,45 @@ function LoginForm() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[70vh] max-w-sm flex-col justify-center">
-      <h1 className="serif text-heading-sm text-graphite">Aperture</h1>
-      <p className="mt-1 text-body-sm text-ash">
-        This dashboard shows a fleet&rsquo;s failure data. Sign in to continue.
-      </p>
+    <div className="mx-auto flex min-h-[78vh] max-w-sm flex-col justify-center">
+      <div className="card gridded-fine p-8">
+        <span className="tag tag-ink">Restricted</span>
+        <h1 className="mt-5 text-heading font-medium text-forest-ink">Aperture</h1>
+        <p className="mt-2 text-body text-slate-smoke">
+          This dashboard shows a fleet&rsquo;s failure data. Sign in to continue.
+        </p>
 
-      <form onSubmit={submit} className="mt-6 space-y-3">
-        <label className="block text-body-sm text-ash" htmlFor="password">
-          Password
-        </label>
-        <input
-          id="password"
-          type="password"
-          autoFocus
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full rounded-md border border-mist bg-white px-3 py-2 text-body-sm"
-        />
-        {error && (
-          <p role="alert" className="text-body-sm text-motor">
-            {error}
-          </p>
-        )}
-        <button type="submit" className="btn-filled w-full" disabled={busy || !password}>
-          {busy && <Spinner />}
-          Sign in
-        </button>
-      </form>
+        <div className="mt-6 h-px w-full bg-lichen" aria-hidden />
+
+        <form onSubmit={submit} className="mt-6 space-y-3">
+          <label className="cinetype block text-[11px] text-slate-smoke" htmlFor="password">
+            PASSWORD
+          </label>
+          <input
+            id="password"
+            type="password"
+            autoFocus
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="field"
+          />
+          {error && (
+            <p role="alert" className="flex items-center gap-2 text-body text-alarm">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-alarm" aria-hidden />
+              {error}
+            </p>
+          )}
+          <button type="submit" className="btn-filled w-full" disabled={busy || !password}>
+            {busy && <Spinner />}
+            Sign in
+          </button>
+        </form>
+      </div>
+
+      <p className="muoto mt-6 text-center text-caption text-slate-smoke">
+        aperture · evaluation &amp; interpretability layer
+      </p>
     </div>
   );
 }

@@ -21,7 +21,7 @@ export function SignOut({ enabled }: { enabled: boolean }) {
         router.replace("/login");
         router.refresh();
       }}
-      className="text-body-sm font-medium text-ash transition hover:text-graphite disabled:opacity-40"
+      className="text-body text-slate-smoke transition hover:text-forest-ink disabled:opacity-40"
     >
       Sign out
     </button>
