@@ -45,10 +45,10 @@ class Settings(BaseSettings):
     local_blob_dir: str = str(_DATA_DIR / "blobs")
 
     # --- Auth -----------------------------------------------------------------
-    # Comma-separated "key:org_slug" pairs. The default demo key maps to the seeded
-    # "acme-robotics" org so the stack is usable out of the box. In production this is
-    # backed by Supabase Auth + per-org API keys.
-    api_keys: str = "demo-key:acme-robotics"
+    # Comma-separated "key:org_slug" pairs. Keys must be supplied through the environment;
+    # there is deliberately no predictable fallback. In production this is backed by Supabase
+    # Auth + per-org API keys.
+    api_keys: str = ""
 
     # --- Upload safety limits (Phase 6) ---------------------------------------
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB per file

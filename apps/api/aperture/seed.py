@@ -61,7 +61,7 @@ def main() -> None:
         print(f"Seeded org '{org.slug}' with {count} episodes; formed {len(clusters)} cluster(s).")
         for c in clusters:
             print(f"  - {c.label}: {c.episode_count} episodes (surface={c.dominant_surface})")
-        print("\nDemo API key: demo-key   (header: X-API-Key: demo-key)")
+        print("\nSet APERTURE_API_KEYS to a locally generated key before calling the API.")
         print("Start the API:  uvicorn aperture.main:app --reload")
     finally:
         db.close()

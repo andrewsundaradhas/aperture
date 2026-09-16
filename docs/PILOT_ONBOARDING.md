@@ -22,7 +22,7 @@ Open http://localhost:3000 — you should see classified episodes and a failure 
 
 ## 2. Get your API key
 
-The seeded demo key is `demo-key` (local development only). For your own org:
+For local development, set a generated API key in `APERTURE_API_KEYS`. For your own org:
 
 ```bash
 curl -X POST http://localhost:8000/v1/onboarding/signup \

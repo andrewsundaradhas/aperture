@@ -44,4 +44,3 @@ aperture/
 └── docs/
 ```
 
-

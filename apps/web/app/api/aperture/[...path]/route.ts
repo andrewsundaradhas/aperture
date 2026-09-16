@@ -17,7 +17,7 @@
 import { NextRequest } from "next/server";
 
 const API_BASE = process.env.APERTURE_API_BASE_URL || "http://localhost:8000";
-const API_KEY = process.env.APERTURE_API_KEY || "demo-key";
+const API_KEY = process.env.APERTURE_API_KEY || "";
 
 // Always hit the backend: dashboard data is per-request, and a cached response would be
 // another tenant's data under a different session.
