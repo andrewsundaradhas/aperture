@@ -89,7 +89,7 @@ See `docs/LOCAL_VS_PRODUCTION.md` for the local ↔ production mapping.
   `APERTURE_R2_BUCKET`. Storage auto-switches from the local filesystem to R2 when these are present.
 - **Render (backend)** — New → Blueprint pointed at this repo (`infra/render.yaml` is ready); fill the
   `sync: false` env vars in the dashboard; verify `GET /health` returns 200.
-- **Vercel (frontend)** — import the repo with root directory `apps/web` (`infra/vercel.json` is ready);
+- **Vercel (frontend)** — import the repo with root directory `apps/web` (`apps/web/vercel.json` is ready);
   set `APERTURE_API_BASE_URL` (your Render URL) and `APERTURE_API_KEY`. Both are **server-side
   only** — never prefix an API key with `NEXT_PUBLIC_`, which inlines it into the browser bundle
   for every visitor to read.

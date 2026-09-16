@@ -1,0 +1,3 @@
+Next serves this directory's contents at the site root. It is kept in git deliberately:
+apps/web/Dockerfile does `COPY --from=build /app/public ./public`, and Docker fails the whole
+build with "/app/public: not found" when the directory is absent.

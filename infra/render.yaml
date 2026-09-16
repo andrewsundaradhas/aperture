@@ -8,6 +8,10 @@ services:
     plan: free
     rootDir: apps/api
     buildCommand: pip install -e .
+    # Migrations run before the new instance takes traffic. The app's lifespan calls
+    # create_all() as a local convenience, but that bypasses Alembic and would leave a
+    # managed database without the RLS policies in infra/supabase/migrations.
+    preDeployCommand: alembic upgrade head
     startCommand: uvicorn aperture.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:

@@ -40,7 +40,7 @@ aperture/
 │   ├── training/            # reproducible training for policy.pt / failure_head.pt
 │   ├── notebooks/           # GPU wrappers around the same code
 │   └── models/              # checkpoint provenance + metrics (weights gitignored)
-├── infra/                   # render.yaml, vercel.json, supabase migrations
+├── infra/                   # render.yaml, supabase migrations (vercel.json lives in apps/web)
 └── docs/
 ```
 

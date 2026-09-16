@@ -6,7 +6,7 @@ services by setting env vars — no code changes.
 | Concern | Local default | Production (free tier) | How to switch |
 |---|---|---|---|
 | Backend API | uvicorn on localhost | FastAPI on **Render** free web service | `infra/render.yaml` |
-| Frontend | `next dev` on :3000 | Next.js on **Vercel** Hobby | `infra/vercel.json` |
+| Frontend | `next dev` on :3000 | Next.js on **Vercel** Hobby | `apps/web/vercel.json` |
 | Database | file-backed **SQLite** | **Supabase** Postgres + RLS | set `APERTURE_DATABASE_URL` |
 | Vector store | JSON embedding column + sklearn HDBSCAN | **pgvector** in Supabase | `infra/supabase/migrations/0001_init.sql` |
 | Object storage | filesystem `.aperture_data/blobs` | **Cloudflare R2** (S3-compatible) | set `APERTURE_R2_*` |

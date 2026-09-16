@@ -41,5 +41,9 @@ export async function middleware(request: NextRequest) {
 export const config = {
   // Everything except the login page, the auth endpoints themselves, and Next's static assets —
   // excluding those is what keeps the redirect from looping.
-  matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico).*)"],
+  //
+  // `icon.svg` is the App Router's generated favicon route. It is public branding, not fleet
+  // data, and the browser requests it on the login page too — gated, it 307s to /login and the
+  // tab renders without an icon.
+  matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico|icon.svg).*)"],
 };

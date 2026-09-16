@@ -73,11 +73,33 @@ GPU and OpenVLA weights that do not belong in this image. It pulls work over HTT
 | Concern | Service | Config |
 |---|---|---|
 | API | Render | `infra/render.yaml` |
-| Dashboard | Vercel | `infra/vercel.json` |
+| Dashboard | Vercel | `apps/web/vercel.json`, root directory `apps/web` |
 | Database | Supabase Postgres | `alembic upgrade head`, **then** apply `infra/supabase/migrations/` — in that order |
 | Storage | Cloudflare R2 | `APERTURE_R2_*` |
 
 See [docs/LOCAL_VS_PRODUCTION.md](docs/LOCAL_VS_PRODUCTION.md) for the full mapping.
+
+### Vercel
+
+Import the repo and set **Root Directory to `apps/web`** — that is where `vercel.json` and the
+Next app live, and it is a dashboard setting, not something `vercel.json` can express.
+
+Set these four in Project Settings → Environment Variables. None of them may be `NEXT_PUBLIC_*`:
+that prefix inlines the value into the browser bundle, and two of these are credentials.
+
+| Variable | Required | Without it |
+|---|---|---|
+| `APERTURE_DASHBOARD_PASSWORD` | **yes** | **Every route returns 503.** The build still succeeds, so the deploy looks green and the site is dead. |
+| `APERTURE_API_KEY` | **yes** | The proxy sends an empty key and the API answers 401 on every call. |
+| `APERTURE_API_BASE_URL` | **yes** | Defaults to `http://localhost:8000`, which on a serverless function is itself — every request 502s. |
+| `APERTURE_SESSION_SECRET` | no | Falls back to the password, so rotating the password also invalidates live sessions. |
+
+The 503 is deliberate — the dashboard fails closed rather than serving fleet data to anyone who
+finds the URL — but it is the one failure mode that a green build hides, so set the password
+before the first deploy rather than after.
+
+`NEXT_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` are optional; the build and runtime both no-op without
+them. `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT` only affect source-map upload.
 
 ## Security checklist before real data
 
