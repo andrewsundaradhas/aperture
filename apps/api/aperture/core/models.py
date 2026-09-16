@@ -89,6 +89,14 @@ class EpisodeFrame(Base):
     action_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     contact_force: Mapped[float | None] = mapped_column(Float, nullable=True)
     subgoal: Mapped[str | None] = mapped_column(String, nullable=True)  # for replanning signal
+    # The commanded action and observed robot state for this timestep, as plain float vectors
+    # (JSON here; a float array in Postgres would also work). Dimensionality is embodiment-
+    # specific and deliberately not constrained — a 7-DoF arm and a humanoid both land here.
+    #
+    # These are what make a dataset export trainable: a fine-tune needs (observation, action)
+    # pairs, and everything else on this row is a diagnostic signal, not a learning target.
+    action: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    state: Mapped[list | None] = mapped_column(JSON, nullable=True)
     # Optional per-frame RGB observation blob (uri into object storage). Present only when the
     # upload carries images; required for the learned-model path (policy/attention/classifier).
     image_uri: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -188,3 +196,64 @@ class VerificationRun(Base):
     pre_n: Mapped[int] = mapped_column(Integer, default=0)
     post_n: Mapped[int] = mapped_column(Integer, default=0)
     verified_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ApiKey(Base):
+    """A per-organization API key, stored as a hash.
+
+    Before this table, `POST /v1/onboarding/signup` mutated the in-process settings string: a
+    key issued on one Render replica was invisible to the others, and every key vanished on
+    restart. Keys now live in the database, so they survive both.
+
+    **Only the hash is stored.** A leaked database backup should not hand over working
+    credentials. `prefix` keeps the first few characters in the clear so a human can recognise
+    which key a row refers to without the secret being recoverable.
+
+    SHA-256 rather than bcrypt/argon2 deliberately: these are 192-bit random tokens, not
+    user-chosen passwords, so there is no dictionary to attack and no work factor worth paying
+    on every authenticated request. The threat bcrypt defends against does not exist here.
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    key_hash: Mapped[str] = mapped_column(String, unique=True, index=True)
+    prefix: Mapped[str] = mapped_column(String)          # e.g. "ak_7Fq2" — display only
+    name: Mapped[str] = mapped_column(String, default="default")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    org: Mapped[Organization] = relationship()
+
+
+class Job(Base):
+    """Background work the API's own worker performs.
+
+    Distinct from `AttributionJob`, deliberately. That table is a *pull* contract handed out to
+    machines Aperture does not control — a GPU notebook claims a rollout, runs a 7B VLA, and
+    posts a result back over HTTP. This table is *push*: work the API itself owes, drained by a
+    worker that shares this codebase and database. Merging them would force one lifecycle,
+    retry policy and auth model onto two genuinely different relationships.
+
+    Every job is org-scoped, so a tenant can only ever see and poll its own work.
+    """
+
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
+    kind: Mapped[str] = mapped_column(String, index=True)  # see aperture.jobs.handlers
+    status: Mapped[str] = mapped_column(String, default="queued", index=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Retries are bounded: a job that fails deterministically must stop burning the worker
+    # rather than spin forever at the head of the queue.
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    org: Mapped[Organization] = relationship()

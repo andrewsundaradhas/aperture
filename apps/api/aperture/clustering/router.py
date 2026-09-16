@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,9 @@ from aperture.clustering.cluster import recompute_clusters
 from aperture.core.auth import resolve_org
 from aperture.core.db import get_db
 from aperture.core.models import ClusterEpisode, Episode, FailureCluster, Organization
+from aperture.core.pagination import Page, page_params
+from aperture.core.ratelimit import recompute_limit
+from aperture.jobs.queue import enqueue
 
 router = APIRouter(prefix="/v1/clusters", tags=["clustering"])
 
@@ -64,24 +67,57 @@ def _to_out(db: Session, c: FailureCluster) -> "ClusterOut":
     )
 
 
-@router.post("/recompute", response_model=list[ClusterOut])
+class RecomputeAccepted(BaseModel):
+    """202 body: the work was queued, here is how to follow it."""
+
+    job_id: str
+    status: str
+    poll: str
+
+
+@router.post("/recompute", status_code=status.HTTP_202_ACCEPTED)
 def recompute(
-    org: Organization = Depends(resolve_org),
+    response: Response,
+    wait: bool = Query(
+        default=False,
+        description="Run inline and return the clusters instead of queueing. For small datasets "
+                    "and scripts; it blocks for as long as the clustering takes.",
+    ),
+    org: Organization = Depends(recompute_limit),
     db: Session = Depends(get_db),
-) -> list[ClusterOut]:
-    clusters = recompute_clusters(db, org)
-    return [_to_out(db, c) for c in clusters]
+):
+    """Recluster the org's failed episodes.
+
+    Queued by default and answered with `202` plus a job id. Clustering is O(all failed
+    episodes) with an HDBSCAN fit in the middle, so doing it inline turns into a request timeout
+    exactly when a customer has enough data for it to matter. Poll `GET /v1/jobs/{id}`.
+
+    `?wait=true` keeps the old synchronous behaviour for scripts and small datasets.
+    """
+    if wait:
+        clusters = recompute_clusters(db, org)
+        db.commit()
+        response.status_code = status.HTTP_200_OK
+        return [_to_out(db, c) for c in clusters]
+
+    job = enqueue(db, org, "cluster_recompute")
+    db.commit()
+    return RecomputeAccepted(job_id=job.id, status=job.status, poll=f"/v1/jobs/{job.id}")
 
 
 @router.get("", response_model=list[ClusterOut])
 def list_clusters(
+    page: Page = Depends(page_params),
     org: Organization = Depends(resolve_org),
     db: Session = Depends(get_db),
 ) -> list[ClusterOut]:
+    """Clusters for the caller's org, biggest first. Paginated with `limit`/`offset`."""
     clusters = db.execute(
         select(FailureCluster)
         .where(FailureCluster.org_id == org.id)
-        .order_by(FailureCluster.episode_count.desc())
+        .order_by(FailureCluster.episode_count.desc(), FailureCluster.id)
+        .limit(page.limit)
+        .offset(page.offset)
     ).scalars().all()
     return [_to_out(db, c) for c in clusters]
 

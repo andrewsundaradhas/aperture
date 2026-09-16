@@ -55,3 +55,79 @@ def test_classify_endpoint(client, auth):
     r = client.post(f"/v1/episodes/{eid}/classify", headers=auth)
     assert r.status_code == 200, r.text
     assert r.json()["surface"] == "perception"
+
+
+# --- regressions the evaluation set exposed (see docs/classifier_eval.md) ---------------------
+
+
+def test_a_gradual_confidence_decline_is_detected():
+    """A trailing-window baseline drifts down with a slow decline and never sees it. This cost
+    perception recall 0.407 before the baseline was anchored to the episode peak."""
+    import numpy as np
+
+    from aperture.evaluation.heuristics import action_confidence_collapse
+
+    gradual = list(np.linspace(0.9, 0.3, 30))
+    assert action_confidence_collapse(gradual).confidence > 0.3
+
+
+def test_a_uniformly_low_confidence_trace_does_not_fire():
+    """The property the peak anchor must not break: no peak to fall from means no collapse."""
+    from aperture.evaluation.heuristics import action_confidence_collapse
+
+    assert action_confidence_collapse([0.3] * 30).confidence < 0.05
+
+
+def test_missing_subgoals_infer_grounding_rather_than_defaulting_to_motor():
+    """The largest error source in the benchmark: an absent channel was tie-broken to motor."""
+    from aperture.evaluation.classifier import classify_frames
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    # Healthy confidence, healthy force, and no sub-goal annotations at all.
+    frames = [
+        NormalizedFrame(t=t, action_confidence=0.9, contact_force=1.0 + 0.01 * (t % 3), subgoal=None)
+        for t in range(20)
+    ]
+    result = classify_frames(frames)
+    assert result.surface == "grounding"
+    assert "_inferred_by_elimination" in result.details
+
+
+def test_an_inferred_verdict_is_low_confidence():
+    """Inference from absence must not read as a finding."""
+    from aperture.evaluation.classifier import classify_frames
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    frames = [
+        NormalizedFrame(t=t, action_confidence=0.9, contact_force=1.0 + 0.01 * (t % 3), subgoal=None)
+        for t in range(20)
+    ]
+    assert classify_frames(frames).confidence < 0.25
+
+
+def test_elimination_does_not_override_a_real_signal():
+    """A present, firing heuristic must still win over an absent channel."""
+    from aperture.evaluation.classifier import classify_frames
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    # Force spikes hard (motor), and sub-goals are missing.
+    forces = [1.0] * 10 + [60.0] + [1.0] * 9
+    frames = [
+        NormalizedFrame(t=t, action_confidence=0.9, contact_force=forces[t], subgoal=None)
+        for t in range(20)
+    ]
+    result = classify_frames(frames)
+    assert result.surface == "motor"
+    assert "_inferred_by_elimination" not in result.details
+
+
+def test_two_missing_channels_do_not_trigger_elimination():
+    """Elimination needs exactly one unreadable channel — two is genuinely ambiguous."""
+    from aperture.evaluation.classifier import classify_frames
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    frames = [
+        NormalizedFrame(t=t, action_confidence=0.9, contact_force=None, subgoal=None)
+        for t in range(20)
+    ]
+    assert "_inferred_by_elimination" not in classify_frames(frames).details

@@ -19,6 +19,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Repository-local data dir used by the SQLite db and the local object store.
 _DATA_DIR = Path(__file__).resolve().parents[2] / ".aperture_data"
 
+# Where `ml/training/train.py` writes policy.pt / failure_head.pt in a source checkout. Absent
+# when the package is installed standalone, in which case weights come from the Hub instead.
+_REPO_MODEL_DIR = Path(__file__).resolve().parents[4] / "ml" / "models"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="APERTURE_", env_file=".env", extra="ignore")
@@ -49,6 +53,21 @@ class Settings(BaseSettings):
     # --- Upload safety limits (Phase 6) ---------------------------------------
     max_upload_bytes: int = 50 * 1024 * 1024  # 50 MB per file
     max_batch_files: int = 50
+    # Frames kept per ingested episode. 0 means "keep every frame", which is the default:
+    # truncating a trajectory silently teaches a fine-tune that the task ends early. Set a
+    # positive cap only to bound memory on very long episodes — each truncation is logged.
+    max_frames_per_episode: int = 0
+
+    # --- Rate limiting --------------------------------------------------------
+    # Per-organization token buckets (see aperture/core/ratelimit.py). Off in tests, which
+    # deliberately hammer the API; on by default everywhere else.
+    rate_limit_enabled: bool = True
+
+    # --- Background jobs ------------------------------------------------------
+    # Run the job worker on a thread inside the API process. Convenient for a single-machine
+    # run (and what makes the README quick-start work); production runs
+    # `python -m aperture.jobs.worker` as its own process and sets this false.
+    inline_worker: bool = True
 
     # --- Learned models (optional; requires the `[ml]` extra) ------------------
     # Off by default so the base install runs anywhere with zero ML dependencies. When True
@@ -56,13 +75,16 @@ class Settings(BaseSettings):
     # clustering paths use the trained AperturePolicy + FailureHead over episode frame images,
     # falling back to the heuristic/simulated path per-episode when an image is absent.
     use_learned_models: bool = False
-    model_device: str = "cpu"  # "cuda" if a GPU is available to the API host
+    model_device: str = "cpu"  # "cuda"/"mps" if the API host has a GPU
+    # Fallback source when the checkpoints are not on disk. There is no public reference repo —
+    # point this at one you own after publishing your own run (see ml/notebooks/train_aperture.ipynb).
     hf_model_repo: str = "KavinandHobbes/aperture-reference-policy"
     hf_policy_file: str = "policy.pt"
     hf_failure_head_file: str = "failure_head.pt"
-    # Load weights from this local dir instead of downloading (offline). Contains policy.pt /
-    # failure_head.pt. Leave unset to fetch + cache from Hugging Face.
-    local_model_dir: str | None = None
+    # Directory holding policy.pt / failure_head.pt. Defaults to the checkout's ml/models, which
+    # is exactly where training writes them, so a local train makes the learned path work with no
+    # further configuration. Falls back to the Hub when a file is missing here.
+    local_model_dir: str | None = str(_REPO_MODEL_DIR) if _REPO_MODEL_DIR.is_dir() else None
 
     @property
     def data_dir(self) -> Path:

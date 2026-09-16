@@ -22,7 +22,7 @@ Open http://localhost:3000 — you should see classified episodes and a failure 
 
 ## 2. Get your API key
 
-The seeded demo key is `demo-key`. For your own org:
+The seeded demo key is `demo-key` (local development only). For your own org:
 
 ```bash
 curl -X POST http://localhost:8000/v1/onboarding/signup \
@@ -30,6 +30,11 @@ curl -X POST http://localhost:8000/v1/onboarding/signup \
   -d '{"slug":"your-co","name":"Your Co"}'
 # → returns {"api_key": "ak_...", ...}   save this
 ```
+
+Only a hash of the key is stored, so it is shown exactly once. Manage keys with
+`GET /v1/onboarding/keys` (prefixes only, never the secret), `POST /v1/onboarding/keys` to mint
+another, and `DELETE /v1/onboarding/keys/{id}` to revoke. Rotate without downtime by minting the
+new key, moving traffic across, then revoking the old one.
 
 Register a robot:
 
@@ -41,8 +46,9 @@ curl -X POST http://localhost:8000/v1/onboarding/robots \
 
 ## 3. Upload your episodes
 
-Aperture accepts **RLDS** (Open X-Embodiment) and **LeRobot** (HF datasets) episode files.
-Batch upload:
+Aperture accepts **RLDS** (`.tfrecord`, or shards in an archive) and **LeRobot v3** (a
+`.zip`/`.tar.gz` of the parquet + mp4 dataset directory). A single dataset upload creates one
+episode per episode in it. Batch upload:
 
 ```bash
 curl -X POST http://localhost:8000/v1/episodes/upload \
@@ -51,13 +57,18 @@ curl -X POST http://localhost:8000/v1/episodes/upload \
   -F "files=@episode2.lerobot.json"
 ```
 
-See `apps/api/aperture/fixtures.py` for the exact accepted JSON shapes of each format.
+See [DATA_FORMATS.md](DATA_FORMATS.md) for every accepted format and the export schema, and
+`apps/api/aperture/fixtures.py` for the legacy JSON shapes.
 
 ## 4. Run the loop
 
+0. **Large datasets** upload straight to object storage via
+   `POST /v1/uploads/presign` → `PUT` → `POST /v1/uploads/ingest`, which returns a job id to
+   poll at `GET /v1/jobs/{id}`. See [DATA_FORMATS.md](DATA_FORMATS.md).
 1. **Classify** each failed episode → `POST /v1/episodes/{id}/classify`
 2. **Attribute** → `POST /v1/episodes/{id}/attribution` (attention heatmap + confidence trace + counterfactual)
-3. **Cluster** the fleet → `POST /v1/clusters/recompute`, then `GET /v1/clusters`
+3. **Cluster** the fleet → `POST /v1/clusters/recompute` (returns `202` + a job id; poll
+   `GET /v1/jobs/{id}`, or pass `?wait=true` to block), then `GET /v1/clusters`
 4. **Export** a scoped fine-tune dataset → `POST /v1/clusters/{id}/dataset-export`
 5. Retrain on your side, then **verify** → `POST /v1/clusters/{id}/verify` with the new batch
 
@@ -79,7 +90,9 @@ See `docs/LOCAL_VS_PRODUCTION.md` for the local ↔ production mapping.
 - **Render (backend)** — New → Blueprint pointed at this repo (`infra/render.yaml` is ready); fill the
   `sync: false` env vars in the dashboard; verify `GET /health` returns 200.
 - **Vercel (frontend)** — import the repo with root directory `apps/web` (`infra/vercel.json` is ready);
-  set `NEXT_PUBLIC_API_BASE_URL` (your Render URL) and `NEXT_PUBLIC_API_KEY`.
+  set `APERTURE_API_BASE_URL` (your Render URL) and `APERTURE_API_KEY`. Both are **server-side
+  only** — never prefix an API key with `NEXT_PUBLIC_`, which inlines it into the browser bundle
+  for every visitor to read.
 - **Sentry (optional)** — set `APERTURE_SENTRY_DSN` (API) and `NEXT_PUBLIC_SENTRY_DSN`/`SENTRY_DSN` (web).
   Both stay inert until set.
 - **Real attention rollout (GPU)** — open `ml/notebooks/attention_rollout.ipynb` on Colab/Kaggle,

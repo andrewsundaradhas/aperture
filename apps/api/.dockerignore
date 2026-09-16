@@ -1,0 +1,6 @@
+.aperture_data/
+.pytest_cache/
+__pycache__/
+*.egg-info/
+tests/
+.venv/

@@ -20,10 +20,17 @@ npm-debug.log*
 .env.local
 .env.*.local
 
-# ML weights (never commit checkpoints; configs only)
+# ML weights (never commit checkpoints; configs and metrics only)
 ml/models/*.bin
 ml/models/*.safetensors
 ml/models/*.pt
+ml/models/checkpoints/
+
+# Training data downloaded from the Hub, and the decoded-frame cache beside it
+ml/data/
+
+# Training run logs (metrics.json is the artifact worth committing, not the console log)
+ml/train.log
 
 # OS
 .DS_Store

@@ -79,6 +79,8 @@ def persist_episode(db: Session, org: Organization, ne: NormalizedEpisode) -> Ep
                 contact_force=f.contact_force,
                 subgoal=f.subgoal,
                 image_uri=image_uri,
+                action=f.action,
+                state=f.state,
             )
         )
     db.flush()

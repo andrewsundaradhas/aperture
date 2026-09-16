@@ -1,10 +1,9 @@
-"""Model definitions — a faithful, byte-compatible reproduction of the architecture trained in
-`ml/notebooks/train_aperture.ipynb`.
+"""Model definitions — the single source of truth for Aperture's learned architecture.
 
-These class definitions MUST stay in lockstep with the notebook: the published checkpoints
-(`policy.pt`, `failure_head.pt`) are plain `state_dict`s, so any change to layer names, shapes,
-or submodule attribute names here will break `load_state_dict`. If you retrain with a different
-architecture, retrain end to end and re-publish both files together.
+`ml/training/train.py` imports these same classes, so training and inference cannot drift: the
+checkpoints (`policy.pt`, `failure_head.pt`) are plain `state_dict`s, and any change to layer
+names, shapes, or submodule attribute names here invalidates existing weights. Change the
+architecture only alongside an end-to-end retrain of both files.
 
 Imported lazily (only when the `[ml]` extra is installed) — never import this module at package
 import time. See `aperture.ml.runtime`.
@@ -23,6 +22,7 @@ LANG_MODEL = "all-MiniLM-L6-v2"          # sentence-transformers; embedding dim 
 ACTION_DIM = 7                           # padded/truncated action vector
 N_SURFACES = 3                           # perception / grounding / motor
 PATCH_GRID = 14                          # 224 / 16 -> 14x14 == 196 patch tokens (+1 cls == 197)
+LANG_CACHE_MAX = 4096                    # distinct instructions held in the embedding cache
 
 
 class AperturePolicy(nn.Module):
@@ -50,10 +50,31 @@ class AperturePolicy(nn.Module):
         self.action_mean = nn.Sequential(nn.Linear(d_v, 256), nn.ReLU(), nn.Linear(256, action_dim))
         self.action_logvar = nn.Sequential(nn.Linear(d_v, 256), nn.ReLU(), nn.Linear(256, action_dim))
 
+        # Frozen language tower => an instruction's embedding never changes, so re-running
+        # MiniLM on it every batch is pure waste. Training especially: a single-task dataset
+        # encodes the *same* string 32 times a batch, hundreds of batches an epoch.
+        #
+        # A plain dict, deliberately not a parameter or buffer, so it stays out of
+        # `state_dict()` and existing checkpoints keep loading unchanged.
+        self._lang_cache: dict[str, "torch.Tensor"] = {}
+
+    def encode_instructions(self, instruction_texts: list[str], device) -> "torch.Tensor":
+        """Embeddings for a batch of instructions, computing each distinct one at most once."""
+        # dict.fromkeys dedups while preserving order, so a batch of N identical instructions
+        # costs exactly one encode.
+        missing = [t for t in dict.fromkeys(instruction_texts) if t not in self._lang_cache]
+        if missing:
+            with torch.no_grad():
+                vectors = self.lang.encode(missing, convert_to_numpy=True)
+            if len(self._lang_cache) + len(missing) > LANG_CACHE_MAX:
+                self._lang_cache.clear()  # unbounded fleets: drop it all rather than grow forever
+            for text, vector in zip(missing, vectors):
+                self._lang_cache[text] = torch.from_numpy(vector.copy())
+        return torch.stack([self._lang_cache[t] for t in instruction_texts]).to(device)
+
     def forward(self, image: "torch.Tensor", instruction_texts: list[str]):
         patch_tokens = self.vision.forward_features(image)  # [B, 197, 384]
-        with torch.no_grad():
-            lang_emb = torch.tensor(self.lang.encode(instruction_texts)).to(image.device)
+        lang_emb = self.encode_instructions(instruction_texts, image.device)
         query = self.lang_proj(lang_emb).unsqueeze(1)  # [B, 1, 384]
         fused, attn_weights = self.cross_attn(query, patch_tokens, patch_tokens)
         fused = fused.squeeze(1)  # [B, 384]
@@ -68,10 +89,11 @@ class AperturePolicy(nn.Module):
 class FailureHead(nn.Module):
     """3-class failure-surface classifier over the pooled visual embedding.
 
-    NOTE: the published `failure_head.pt` was trained on a placeholder dataset (constant label),
-    so it is architecturally real but not yet a meaningful classifier — retrain on labeled
-    failure data before trusting `method="learned"` classifications in production. See the
-    provenance note in `ml/models/README.md`.
+    Trained by `ml/training/train.py` under *programmatic* supervision — real robot frames with
+    each surface realised as the visual condition that distinguishes it (degraded sensor,
+    ambiguous referent, or neither). That makes it a working classifier of what a single frame
+    can actually show, not a substitute for labels from your own fleet. See the provenance and
+    held-out numbers in `ml/models/README.md` before relying on `method="learned"`.
     """
 
     def __init__(self, d_v: int, n_classes: int = N_SURFACES) -> None:

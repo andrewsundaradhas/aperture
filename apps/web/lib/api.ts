@@ -1,15 +1,18 @@
-// Thin typed client for the Aperture API. Reads base URL + API key from public env vars so
-// the dashboard works locally (defaults) and against Render/Supabase in production.
+// Thin typed client for the Aperture API.
+//
+// Every call goes to this app's own `/api/aperture/*` route, which attaches the API key
+// server-side (see `app/api/aperture/[...path]/route.ts`). The browser never sees a credential,
+// so there is deliberately no key in this file and no `NEXT_PUBLIC_*` variable holding one.
+// Point the proxy at a different backend with the server-side `APERTURE_API_BASE_URL`.
 
-const BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-const KEY = process.env.NEXT_PUBLIC_API_KEY || "demo-key";
+const BASE = "/api/aperture";
 
 export const API_BASE = BASE;
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { "X-API-Key": KEY, ...(init?.headers || {}) },
+    headers: { ...(init?.headers || {}) },
     cache: "no-store",
   });
   if (!res.ok) {
@@ -23,7 +26,8 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
  *
  * The storage layer hands back backend-native URIs — `local://<key>` from the filesystem
  * backend, `r2://<bucket>/<key>` from Cloudflare R2 — neither of which is a URL. Both are
- * served by the API's `/v1/blobs/<key>` route, so strip the scheme and route through it.
+ * served by the API's `/v1/blobs/<key>` route, reached here through the same server-side proxy
+ * as every other call, so the blob request carries no credential either.
  * Only an http(s) URI (a real R2 presigned URL) is used verbatim.
  */
 export function blobUrl(uri: string): string {
@@ -95,6 +99,29 @@ export type ClusterDetail = Cluster & {
   episodes: { id: string; robot_id: string; outcome: string; surface: string | null; instruction: string | null }[];
 };
 
+/** A queued unit of background work. Clustering and dataset ingestion are too slow to hold a
+ *  request open, so both answer with one of these and the client polls. */
+export type Job = {
+  id: string;
+  kind: string;
+  status: "queued" | "running" | "done" | "failed";
+  result: Record<string, any> | null;
+  error: string | null;
+  attempts: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type JobAccepted = { job_id: string; status: string; poll: string };
+
+export class JobFailedError extends Error {
+  constructor(public readonly job: Job) {
+    super(job.error || `Job ${job.kind} failed`);
+    this.name = "JobFailedError";
+  }
+}
+
 export type VerifyResult = {
   cluster_id: string;
   verification_run_id: string;
@@ -115,7 +142,8 @@ export const api = {
   getAttribution: (id: string) => req<Attribution>(`/v1/episodes/${id}/attribution`),
   runAttribution: (id: string) => req<Attribution>(`/v1/episodes/${id}/attribution`, { method: "POST" }),
   listClusters: () => req<Cluster[]>(`/v1/clusters`),
-  recomputeClusters: () => req<Cluster[]>(`/v1/clusters/recompute`, { method: "POST" }),
+  startRecompute: () => req<JobAccepted>(`/v1/clusters/recompute`, { method: "POST" }),
+  getJob: (id: string) => req<Job>(`/v1/jobs/${id}`),
   getCluster: (id: string) => req<ClusterDetail>(`/v1/clusters/${id}`),
   exportDataset: (id: string, format: string) =>
     req<{ download_url: string; episode_count: number; format: string }>(
@@ -128,6 +156,38 @@ export const api = {
     return req<VerifyResult>(`/v1/clusters/${id}/verify`, { method: "POST", body: fd });
   },
 };
+
+/** Poll a job until it finishes.
+ *
+ * Throws `JobFailedError` when the job fails, so a caller's existing catch renders the real
+ * reason rather than a generic failure. Gives up after `timeoutMs` so a worker that is down
+ * surfaces as an error instead of a spinner that never stops.
+ */
+export async function waitForJob(
+  jobId: string,
+  { intervalMs = 700, timeoutMs = 120_000 }: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<Job> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const job = await api.getJob(jobId);
+    if (job.status === "done") return job;
+    if (job.status === "failed") throw new JobFailedError(job);
+    if (Date.now() > deadline) {
+      throw new Error(
+        `Job ${jobId} still ${job.status} after ${Math.round(timeoutMs / 1000)}s. ` +
+          `Is the worker running (\`python -m aperture.jobs.worker\`)?`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+/** Recluster the fleet and resolve once the new clusters are ready. */
+export async function recomputeClusters(): Promise<Cluster[]> {
+  const accepted = await api.startRecompute();
+  await waitForJob(accepted.job_id);
+  return api.listClusters();
+}
 
 // ── Failure-surface presentation ──────────────────────────────────────────────
 

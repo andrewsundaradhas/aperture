@@ -3,6 +3,9 @@ import Link from "next/link";
 import { Fraunces, Inter } from "next/font/google";
 import "./globals.css";
 import { NavLink } from "@/components/NavLink";
+import { Chrome } from "@/components/Chrome";
+import { SignOut } from "@/components/SignOut";
+import { authConfig } from "@/lib/session";
 
 // Substitutes for the brand's custom faces: Fraunces stands in for the ppmondwest
 // display serif, Inter for the af UI sans.
@@ -35,7 +38,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           Skip to content
         </a>
         <div className="min-h-screen">
-          {/* Floating frosted navigation pill */}
+          {/* Floating frosted navigation pill. Hidden on /login — see components/Chrome. */}
+          <Chrome>
           <header className="sticky top-4 z-20 px-4">
             <nav className="mx-auto max-w-[1200px]" aria-label="Primary">
               <div className="mx-auto flex w-fit max-w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 rounded-nav border border-mist bg-paper/70 px-3 py-2 shadow-nav backdrop-blur-md">
@@ -57,9 +61,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   Open console
                   <ArrowCircle />
                 </Link>
+                {/* The layout is a server component, so reading the server-side auth config
+                    here never ships the password or its presence check to the browser. */}
+                <SignOut enabled={authConfig().configured} />
               </div>
             </nav>
           </header>
+          </Chrome>
 
           <main id="main" className="mx-auto max-w-[1200px] px-6 py-16">
             {children}

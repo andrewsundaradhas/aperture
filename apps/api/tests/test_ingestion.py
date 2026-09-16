@@ -23,6 +23,8 @@ def test_both_formats_normalize_to_same_shape():
             "contact_force",
             "subgoal",
             "image_b64",
+            "action",
+            "state",
         }
 
 

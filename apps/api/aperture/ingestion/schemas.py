@@ -18,6 +18,11 @@ class NormalizedFrame(BaseModel):
     # Optional base64-encoded RGB observation image for this frame. Consumed by the learned
     # model path (policy/attention/classifier); ignored by the heuristic path.
     image_b64: str | None = None
+    # The commanded action and observed state, as plain float vectors of embodiment-specific
+    # width. Everything else on this frame is a diagnostic signal; these two are the learning
+    # target, and a dataset export without them cannot be fine-tuned on.
+    action: list[float] | None = None
+    state: list[float] | None = None
 
 
 class NormalizedEpisode(BaseModel):

@@ -5,7 +5,7 @@
   "installCommand": "npm install",
   "rootDirectory": "apps/web",
   "env": {
-    "NEXT_PUBLIC_API_BASE_URL": "@aperture_api_base_url",
-    "NEXT_PUBLIC_API_KEY": "@aperture_api_key"
+    "APERTURE_API_BASE_URL": "@aperture_api_base_url",
+    "APERTURE_API_KEY": "@aperture_api_key"
   }
 }

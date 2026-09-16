@@ -16,9 +16,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 # --- Tunable thresholds (kept in one place for auditability / patent disclosure) ---------
-CONF_BASELINE_WINDOW = 3          # frames used to establish the rolling confidence baseline
-CONF_COLLAPSE_RATIO = 0.6         # a frame is "collapsed" below this fraction of its baseline
-FORCE_SPIKE_Z = 3.0               # contact-force spike: |value - median| > Z * MAD-ish scale
+#
+# `CONF_COLLAPSE_RATIO` and `FORCE_SPIKE_Z` were fitted by sweep against the labeled evaluation
+# set (`ml/eval/`), tuned on seed 0 and checked on a held-out seed 99: held-out macro F1 rose
+# from 0.855 to 0.887, with a tune/held gap of ~0.015, so the values generalise rather than
+# memorise that one draw. Re-derive with `make eval` after changing the generator.
+CONF_BASELINE_WINDOW = 3          # frames smoothed into each confidence baseline sample
+CONF_COLLAPSE_RATIO = 0.75        # a frame is "collapsed" below this fraction of the peak baseline
+FORCE_SPIKE_Z = 4.0               # contact-force spike: |value - median| > Z * MAD-ish scale
 FORCE_FLATLINE_EPS = 1e-3         # a force trace with less spread than this is "flat"
 FORCE_FLATLINE_LEVEL = 0.1        # ...and only anomalous if it's also stuck near zero (lost contact)
 REPLAN_MIN_BLOCKS = 2             # need at least this many sub-goal blocks to judge replanning
@@ -37,18 +42,34 @@ def _clamp(x: float) -> float:
 
 
 def action_confidence_collapse(confidences: list[float | None]) -> HeuristicVerdict:
-    """Perception. Flag a sustained drop of per-timestep confidence below a rolling baseline."""
+    """Perception. Flag a sustained drop of per-timestep confidence below its established peak.
+
+    The baseline is the **best sustained confidence seen so far in the episode**, not a trailing
+    window. A trailing window drifts down with a slow decline, so it can only ever see abrupt
+    drops: a 0.9 -> 0.3 decay spread over 30 frames scored 0.000 against a rolling baseline,
+    while the identical total loss applied in one step scored 0.257. Both are the policy losing
+    its grip on what it sees; only one was detected, which is why perception recall was 0.407 on
+    `docs/classifier_eval.md`.
+
+    Taking a running maximum fixes that while keeping the property that mattered: an episode
+    whose confidence is *uniformly* low never fires, because there is no peak to have fallen
+    from — only a decline relative to this policy's own demonstrated best counts.
+    """
     vals = [c for c in confidences if c is not None]
     if len(vals) < CONF_BASELINE_WINDOW + 1:
         return HeuristicVerdict("perception", 0.0, signal_present=False)
 
     collapsed_depth = 0.0
     collapsed_frames = 0
+    peak = sum(vals[:CONF_BASELINE_WINDOW]) / CONF_BASELINE_WINDOW
     for i in range(CONF_BASELINE_WINDOW, len(vals)):
-        baseline = sum(vals[i - CONF_BASELINE_WINDOW : i]) / CONF_BASELINE_WINDOW
-        if baseline <= 0:
+        window = sum(vals[i - CONF_BASELINE_WINDOW : i]) / CONF_BASELINE_WINDOW
+        # Update the peak from the trailing window, not the raw frame, so a single noisy spike
+        # cannot raise the bar for the rest of the episode.
+        peak = max(peak, window)
+        if peak <= 0:
             continue
-        ratio = vals[i] / baseline
+        ratio = vals[i] / peak
         if ratio < CONF_COLLAPSE_RATIO:
             collapsed_frames += 1
             collapsed_depth += (CONF_COLLAPSE_RATIO - ratio) / CONF_COLLAPSE_RATIO
@@ -61,7 +82,11 @@ def action_confidence_collapse(confidences: list[float | None]) -> HeuristicVerd
         "perception",
         confidence,
         signal_present=True,
-        evidence={"collapsed_frames": collapsed_frames, "fraction": round(frac, 3)},
+        evidence={
+            "collapsed_frames": collapsed_frames,
+            "fraction": round(frac, 3),
+            "peak_confidence": round(peak, 3),
+        },
     )
 
 

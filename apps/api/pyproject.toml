@@ -23,6 +23,14 @@ dev = [
     "pytest>=8.0",
     "httpx>=0.27",
 ]
+# Real dataset ingestion: LeRobot v3 (parquet + mp4) and image encoding. RLDS TFRecord needs
+# nothing extra — that reader is pure stdlib. Without this extra the API still ingests the
+# legacy JSON encoding and RLDS .tfrecord, and returns a clear 4xx for LeRobot archives.
+datasets = [
+    "pyarrow>=14.0",   # LeRobot v3 parquet tables
+    "av>=11.0",        # mp4 frame decode
+    "pillow>=10.0",    # frame -> PNG for the blob store
+]
 # Learned-model inference (AperturePolicy + FailureHead). Optional and heavy — the base API
 # runs without it and falls back to the heuristic/simulated path. Install with:
 #   pip install -e ".[ml]"   and set APERTURE_USE_LEARNED_MODELS=true

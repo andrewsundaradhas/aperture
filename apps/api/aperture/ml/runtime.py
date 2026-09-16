@@ -6,9 +6,11 @@ Contract with the rest of the app:
     checkpoints cannot be loaded, so every caller can fall back to the simulated/heuristic path.
   * The models are loaded once, lazily, and cached — the first call pays the download/load cost.
 
-Weights are resolved from `APERTURE_LOCAL_MODEL_DIR` if set (offline), otherwise downloaded and
-cached from the Hugging Face repo in settings (`KavinandHobbes/aperture-reference-policy`).
-""" 
+Weights are resolved from `APERTURE_LOCAL_MODEL_DIR`, which defaults to the checkout's
+`ml/models` — exactly where `ml/training/train.py` writes them. When a checkpoint is missing
+there the loader falls back to `APERTURE_HF_MODEL_REPO` on the Hugging Face Hub; no public
+reference repo exists, so that fallback only works against one you publish yourself.
+"""
 
 from __future__ import annotations
 
@@ -19,7 +21,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Class-index order the failure head was trained with (notebook: surface_to_idx).
+# Class-index order the failure head was trained with. Must stay identical to
+# `ml/training/failure_surfaces.SURFACES`, which is what assigns the labels — a test in
+# `ml/tests/test_failure_surfaces.py` pins the two together.
 SURFACES = ["perception", "grounding", "motor"]
 GRID = 14  # 14x14 == 196 patch tokens for vit_small_patch16_224 @ 224px
 

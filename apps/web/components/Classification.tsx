@@ -30,8 +30,17 @@ function evidenceLine(surface: string, ev: Record<string, any>, present: boolean
   switch (surface) {
     case "perception": {
       const n = ev.collapsed_frames ?? 0;
-      if (!n) return "confidence held against its rolling baseline";
-      return `confidence collapsed on ${n} frame${n === 1 ? "" : "s"} (${pct(ev.fraction ?? 0)} of the trace)`;
+      const peak = ev.peak_confidence;
+      if (!n) {
+        return peak != null
+          ? `confidence held near its episode peak of ${Number(peak).toFixed(2)}`
+          : "confidence held near its episode peak";
+      }
+      return (
+        `confidence collapsed on ${n} frame${n === 1 ? "" : "s"} ` +
+        `(${pct(ev.fraction ?? 0)} of the trace)` +
+        (peak != null ? ` from a peak of ${Number(peak).toFixed(2)}` : "")
+      );
     }
     case "grounding": {
       const blocks = ev.blocks ?? 0;
@@ -66,9 +75,20 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
   }
 
   const { surface, confidence, details, method } = classification;
+
+  // The learned path produces a probability distribution, not three heuristic scores. Rendering
+  // the heuristic bars for it showed three empty rows reading "signal not present" next to a
+  // blurb about contact force — a rationale the model never gave. For an interpretability tool
+  // that is worse than showing nothing, so the two verdicts get the explanation they actually
+  // have.
+  if (method === "learned") {
+    return <LearnedBreakdown surface={surface} confidence={confidence} details={details} />;
+  }
+
   const margin = typeof details?._margin === "number" ? details._margin : null;
   const fired = confidence >= 0.005;
   const ambiguous = fired && margin != null && margin < AMBIGUOUS_MARGIN;
+  const inferred = details?._inferred_by_elimination;
 
   return (
     <div className="space-y-4">
@@ -93,6 +113,12 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
           <p className="text-caption text-perception">
             Contested call — the runner-up is within {pct(margin!)}. Treat the surface as a
             hypothesis, not a conclusion.
+          </p>
+        )}
+        {inferred && (
+          <p className="text-caption text-perception">
+            Inferred by elimination — {inferred.reason} That is an argument from a missing
+            signal, not positive evidence.
           </p>
         )}
       </div>
@@ -143,6 +169,76 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/** What the trained `FailureHead` actually predicted.
+ *
+ * The model outputs one probability per surface. There are no per-heuristic signals behind it,
+ * so this shows the distribution and says plainly where it came from — including that a single
+ * frame is all the model saw.
+ */
+function LearnedBreakdown({
+  surface,
+  confidence,
+  details,
+}: {
+  surface: string;
+  confidence: number;
+  details: Record<string, any>;
+}) {
+  const probs: Record<string, number> = details?.probs ?? {};
+  const ranked = SURFACES.map((s) => ({ s, p: probs[s] ?? 0 })).sort((a, b) => b.p - a.p);
+  const margin = ranked.length > 1 ? ranked[0].p - ranked[1].p : null;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-body-sm text-charcoal">
+        Predicted{" "}
+        <span className={`font-medium ${TEXT_TONE[surface] ?? "text-charcoal"}`}>{surface}</span>{" "}
+        at {pct(confidence)} confidence.{" "}
+        <span className="text-ash">
+          From the trained failure head, over this episode&rsquo;s first frame image.
+        </span>
+      </p>
+      {margin != null && margin < AMBIGUOUS_MARGIN && (
+        <p className="text-caption text-perception">
+          Close call — the runner-up is within {pct(margin)}.
+        </p>
+      )}
+
+      <ul className="space-y-2.5">
+        {ranked.map(({ s, p }) => (
+          <li key={s} className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full ${BAR_TONE[s]}`} aria-hidden />
+              <span
+                className={`text-body-sm ${
+                  s === surface ? `font-medium ${TEXT_TONE[s]}` : "text-charcoal"
+                }`}
+              >
+                {s}
+              </span>
+              {s === surface && (
+                <span className="pill bg-linen text-ash border border-mist">predicted</span>
+              )}
+              <span className="ml-auto font-mono text-caption tabular-nums text-ash">{pct(p)}</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-mist/60">
+              <div
+                className={`h-full ${BAR_TONE[s]} ${s === surface ? "" : "opacity-40"}`}
+                style={{ width: `${Math.max(p * 100, p > 0 ? 2 : 0)}%` }}
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <p className="text-caption text-fog">
+        method: <span className="font-mono">learned</span> · one frame, no heuristic signals —
+        read the attention map below for where it looked.
+      </p>
     </div>
   );
 }

@@ -1,8 +1,9 @@
 """Learned VLA models for Aperture.
 
-This package hosts the *real* trained models that were produced in the Colab training
-notebook (`ml/notebooks/train_aperture.ipynb`) and published to the Hugging Face repo
-`KavinandHobbes/aperture-reference-policy`:
+This package holds the model definitions and the inference runtime for the two checkpoints
+produced by `ml/training/train.py` (see `ml/models/README.md` for provenance and held-out
+metrics). The checkpoints are not published anywhere — you train them yourself, and the
+runtime resolves them from `ml/models/` by default:
 
   * `AperturePolicy`   -> policy.pt        (ViT-Small vision + frozen MiniLM language,
                                             cross-attention fusion, Gaussian action head)

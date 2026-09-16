@@ -24,6 +24,18 @@ class StorageBackend:
     def signed_url(self, key: str, expires_in: int = 3600) -> str:
         raise NotImplementedError
 
+    def signed_upload_url(self, key: str, expires_in: int = 3600) -> str:
+        """A URL the client can PUT bytes to directly, bypassing the API process.
+
+        A LeRobot v3 dataset of real fleet video is gigabytes. Proxying that through the API
+        means holding it in memory to hand to the parser, and paying for the bandwidth twice.
+        The client uploads straight to object storage and then tells the API the key.
+        """
+        raise NotImplementedError
+
+    def exists(self, key: str) -> bool:
+        raise NotImplementedError
+
 
 class LocalStorage(StorageBackend):
     def __init__(self, root: str) -> None:
@@ -45,6 +57,14 @@ class LocalStorage(StorageBackend):
     def signed_url(self, key: str, expires_in: int = 3600) -> str:
         # Local demo: hand back a path the dev server can serve. Same shape as a presigned URL.
         return f"/v1/blobs/{key}"
+
+    def signed_upload_url(self, key: str, expires_in: int = 3600) -> str:
+        """Local equivalent: the API's own PUT route. Same client flow as a real presigned URL,
+        so nothing downstream has to know which backend is in use."""
+        return f"/v1/blobs/{key}"
+
+    def exists(self, key: str) -> bool:
+        return self._path(key).exists()
 
 
 class R2Storage(StorageBackend):
@@ -73,6 +93,22 @@ class R2Storage(StorageBackend):
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires_in,
         )
+
+    def signed_upload_url(self, key: str, expires_in: int = 3600) -> str:
+        return self.client.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": self.bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
+    def exists(self, key: str) -> bool:
+        from botocore.exceptions import ClientError
+
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError:
+            return False
 
 
 _backend: StorageBackend | None = None

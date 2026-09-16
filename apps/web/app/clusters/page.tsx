@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, Cluster, SURFACE_BLURB } from "@/lib/api";
+import { api, Cluster, SURFACE_BLURB, recomputeClusters } from "@/lib/api";
 import {
   ActionButton,
   CardSkeleton,
@@ -34,7 +34,7 @@ export default function ClustersPage() {
   async function recompute() {
     setBusy(true);
     try {
-      setClusters(await api.recomputeClusters());
+      setClusters(await recomputeClusters());
       setError(null);
     } catch (e) {
       setError(e);

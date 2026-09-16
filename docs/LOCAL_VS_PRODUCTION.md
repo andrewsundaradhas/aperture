@@ -18,7 +18,7 @@ services by setting env vars — no code changes.
 ## What is real vs. substituted locally
 
 **Real, identical to production:** ingestion + RLDS/LeRobot normalization, the 3-heuristic
-classifier and its combination rule, clustering (HDBSCAN over embeddings), scoped dataset
+classifier and its combination rule (measured in [classifier_eval.md](classifier_eval.md)), clustering (HDBSCAN over embeddings), scoped dataset
 export, loop-closure verification math, tenant isolation logic, all API contracts.
 
 **Substituted locally by default, with a real learned path available** (enable with the `[ml]`

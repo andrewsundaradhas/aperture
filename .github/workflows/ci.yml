@@ -36,3 +36,27 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+
+  ml:
+    name: ML training tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # The base API install (no `[ml]` extra) is enough: these tests exercise the dataset
+      # reader and the failure-surface construction, and only import `aperture.ml.runtime`
+      # for its SURFACES constant — no torch, so the job stays fast.
+      - name: Install
+        run: pip install -e "apps/api" pytest pillow
+      - name: Test
+        run: pytest -q -p no:warnings
+        working-directory: ml
+      # The classifier benchmark is only worth anything if it still runs. Regenerate it and
+      # fail if the committed report is stale.
+      - name: Classifier benchmark is reproducible
+        run: |
+          python -m eval.run_eval
+          git diff --exit-code ../docs/classifier_eval.md
+        working-directory: ml

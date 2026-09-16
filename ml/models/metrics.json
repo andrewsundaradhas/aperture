@@ -1,0 +1,414 @@
+{
+  "dataset": "/Users/arshen/aperture/ml/data/xarm_lift_medium",
+  "device": "mps",
+  "precision": "bfloat16",
+  "episodes": {
+    "train": 720,
+    "val": 80
+  },
+  "run_a_policy": {
+    "epochs": 10,
+    "vision_frozen": true,
+    "history": [
+      {
+        "epoch": 0,
+        "train_nll": -0.8185160005858853,
+        "val_nll": -0.5505724332724062
+      },
+      {
+        "epoch": 1,
+        "train_nll": -0.5959001379368783,
+        "val_nll": -0.3892766249454802
+      },
+      {
+        "epoch": 2,
+        "train_nll": -0.9229721098635378,
+        "val_nll": -1.1849159134758844
+      },
+      {
+        "epoch": 3,
+        "train_nll": -0.7557064497092372,
+        "val_nll": -1.1150465257584103
+      },
+      {
+        "epoch": 4,
+        "train_nll": -0.687962936095192,
+        "val_nll": -0.6207537234775604
+      },
+      {
+        "epoch": 5,
+        "train_nll": -0.7721845580638779,
+        "val_nll": -1.0833183924357097
+      },
+      {
+        "epoch": 6,
+        "train_nll": -0.7626398659979537,
+        "val_nll": -0.2601281146681498
+      },
+      {
+        "epoch": 7,
+        "train_nll": -0.7626725696093447,
+        "val_nll": -0.7178979307886154
+      },
+      {
+        "epoch": 8,
+        "train_nll": -0.9909804240001455,
+        "val_nll": -2.2668296458229187
+      },
+      {
+        "epoch": 9,
+        "train_nll": -1.0762346197270374,
+        "val_nll": -0.4418778329614609
+      }
+    ]
+  },
+  "run_b_failure_head": {
+    "epochs": 40,
+    "samples_per_surface": 4000,
+    "history": [
+      {
+        "epoch": 0,
+        "loss": 0.11697537982215483,
+        "train_acc": 0.9787499904632568,
+        "val_acc": 0.9726666808128357
+      },
+      {
+        "epoch": 1,
+        "loss": 0.037096483261479685,
+        "train_acc": 0.9931666851043701,
+        "val_acc": 0.9959999918937683
+      },
+      {
+        "epoch": 2,
+        "loss": 0.029863744802229728,
+        "train_acc": 0.9959999918937683,
+        "val_acc": 0.996666669845581
+      },
+      {
+        "epoch": 3,
+        "loss": 0.024664816721885776,
+        "train_acc": 0.9948333501815796,
+        "val_acc": 0.9913333058357239
+      },
+      {
+        "epoch": 4,
+        "loss": 0.02389512660560528,
+        "train_acc": 0.9973333477973938,
+        "val_acc": 0.9940000176429749
+      },
+      {
+        "epoch": 5,
+        "loss": 0.018014092638002088,
+        "train_acc": 0.9915833473205566,
+        "val_acc": 0.9900000095367432
+      },
+      {
+        "epoch": 6,
+        "loss": 0.018394435924473023,
+        "train_acc": 0.9956666827201843,
+        "val_acc": 0.9926666617393494
+      },
+      {
+        "epoch": 7,
+        "loss": 0.01818301694418187,
+        "train_acc": 0.9943333268165588,
+        "val_acc": 0.9926666617393494
+      },
+      {
+        "epoch": 8,
+        "loss": 0.01424463571854479,
+        "train_acc": 0.9922500252723694,
+        "val_acc": 0.9926666617393494
+      },
+      {
+        "epoch": 9,
+        "loss": 0.013403535135701531,
+        "train_acc": 0.9906666874885559,
+        "val_acc": 0.9906666874885559
+      },
+      {
+        "epoch": 10,
+        "loss": 0.00885829270141888,
+        "train_acc": 0.9989166855812073,
+        "val_acc": 0.996666669845581
+      },
+      {
+        "epoch": 11,
+        "loss": 0.016677599942549325,
+        "train_acc": 0.9984166622161865,
+        "val_acc": 0.9953333139419556
+      },
+      {
+        "epoch": 12,
+        "loss": 0.013213763760671403,
+        "train_acc": 0.9987499713897705,
+        "val_acc": 0.9946666955947876
+      },
+      {
+        "epoch": 13,
+        "loss": 0.00828724059029264,
+        "train_acc": 0.9993333220481873,
+        "val_acc": 0.9959999918937683
+      },
+      {
+        "epoch": 14,
+        "loss": 0.008653146136177384,
+        "train_acc": 0.9964166879653931,
+        "val_acc": 0.9940000176429749
+      },
+      {
+        "epoch": 15,
+        "loss": 0.009544938751644319,
+        "train_acc": 0.9978333115577698,
+        "val_acc": 0.9946666955947876
+      },
+      {
+        "epoch": 16,
+        "loss": 0.011336908106925876,
+        "train_acc": 0.9986666440963745,
+        "val_acc": 0.9973333477973938
+      },
+      {
+        "epoch": 17,
+        "loss": 0.0066958247065504115,
+        "train_acc": 0.9894999861717224,
+        "val_acc": 0.9906666874885559
+      },
+      {
+        "epoch": 18,
+        "loss": 0.009741455322881544,
+        "train_acc": 0.9984999895095825,
+        "val_acc": 0.9953333139419556
+      },
+      {
+        "epoch": 19,
+        "loss": 0.01226678136866273,
+        "train_acc": 0.9994999766349792,
+        "val_acc": 0.9973333477973938
+      },
+      {
+        "epoch": 20,
+        "loss": 0.0035637052915186585,
+        "train_acc": 0.9991666674613953,
+        "val_acc": 0.9953333139419556
+      },
+      {
+        "epoch": 21,
+        "loss": 0.005304901157273056,
+        "train_acc": 0.996916651725769,
+        "val_acc": 0.996666669845581
+      },
+      {
+        "epoch": 22,
+        "loss": 0.01470637069998323,
+        "train_acc": 0.9987499713897705,
+        "val_acc": 0.9959999918937683
+      },
+      {
+        "epoch": 23,
+        "loss": 0.006614817708978156,
+        "train_acc": 0.9954166412353516,
+        "val_acc": 0.9946666955947876
+      },
+      {
+        "epoch": 24,
+        "loss": 0.006386354852682416,
+        "train_acc": 0.9986666440963745,
+        "val_acc": 0.9953333139419556
+      },
+      {
+        "epoch": 25,
+        "loss": 0.003936192730127573,
+        "train_acc": 0.999750018119812,
+        "val_acc": 0.9973333477973938
+      },
+      {
+        "epoch": 26,
+        "loss": 0.0025525755080935825,
+        "train_acc": 0.999833345413208,
+        "val_acc": 0.9959999918937683
+      },
+      {
+        "epoch": 27,
+        "loss": 0.001425372401508374,
+        "train_acc": 1.0,
+        "val_acc": 0.9980000257492065
+      },
+      {
+        "epoch": 28,
+        "loss": 0.0068660590857750016,
+        "train_acc": 0.9945833086967468,
+        "val_acc": 0.987333357334137
+      },
+      {
+        "epoch": 29,
+        "loss": 0.004667865869622422,
+        "train_acc": 0.9994166493415833,
+        "val_acc": 0.9946666955947876
+      },
+      {
+        "epoch": 30,
+        "loss": 0.006602766556644042,
+        "train_acc": 0.9921666383743286,
+        "val_acc": 0.9926666617393494
+      },
+      {
+        "epoch": 31,
+        "loss": 0.010026409786187742,
+        "train_acc": 0.9971666932106018,
+        "val_acc": 0.9866666793823242
+      },
+      {
+        "epoch": 32,
+        "loss": 0.0027375614402507156,
+        "train_acc": 0.9941666722297668,
+        "val_acc": 0.9886666536331177
+      },
+      {
+        "epoch": 33,
+        "loss": 0.004851099527702499,
+        "train_acc": 0.999916672706604,
+        "val_acc": 0.9973333477973938
+      },
+      {
+        "epoch": 34,
+        "loss": 0.0009450882981394291,
+        "train_acc": 1.0,
+        "val_acc": 0.9973333477973938
+      },
+      {
+        "epoch": 35,
+        "loss": 0.0003632273582192435,
+        "train_acc": 1.0,
+        "val_acc": 0.9980000257492065
+      },
+      {
+        "epoch": 36,
+        "loss": 0.005864901499391029,
+        "train_acc": 0.9915833473205566,
+        "val_acc": 0.984000027179718
+      },
+      {
+        "epoch": 37,
+        "loss": 0.00856463869913648,
+        "train_acc": 1.0,
+        "val_acc": 0.996666669845581
+      },
+      {
+        "epoch": 38,
+        "loss": 0.0006979211683198703,
+        "train_acc": 1.0,
+        "val_acc": 0.9973333477973938
+      },
+      {
+        "epoch": 39,
+        "loss": 0.0001543347589862615,
+        "train_acc": 1.0,
+        "val_acc": 0.996666669845581
+      }
+    ],
+    "validation": {
+      "accuracy": 0.9967,
+      "per_class": {
+        "perception": {
+          "precision": 0.996,
+          "recall": 0.998,
+          "support": 500
+        },
+        "grounding": {
+          "precision": 0.998,
+          "recall": 0.998,
+          "support": 500
+        },
+        "motor": {
+          "precision": 0.996,
+          "recall": 0.994,
+          "support": 500
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          "perception",
+          "grounding",
+          "motor"
+        ],
+        "rows_true_cols_pred": [
+          [
+            499,
+            0,
+            1
+          ],
+          [
+            0,
+            499,
+            1
+          ],
+          [
+            2,
+            1,
+            497
+          ]
+        ]
+      },
+      "per_variant_accuracy": {
+        "identical_distractors": {
+          "correct": 249,
+          "total": 250,
+          "accuracy": 0.996
+        },
+        "recoloured_distractors": {
+          "correct": 250,
+          "total": 250,
+          "accuracy": 1.0
+        },
+        "actuation_anomaly": {
+          "correct": 497,
+          "total": 500,
+          "accuracy": 0.994
+        },
+        "sensor_noise": {
+          "correct": 84,
+          "total": 84,
+          "accuracy": 1.0
+        },
+        "colour_loss": {
+          "correct": 83,
+          "total": 83,
+          "accuracy": 1.0
+        },
+        "overexposure": {
+          "correct": 83,
+          "total": 83,
+          "accuracy": 1.0
+        },
+        "blur": {
+          "correct": 84,
+          "total": 84,
+          "accuracy": 1.0
+        },
+        "occlusion": {
+          "correct": 82,
+          "total": 83,
+          "accuracy": 0.988
+        },
+        "underexposure": {
+          "correct": 83,
+          "total": 83,
+          "accuracy": 1.0
+        }
+      }
+    },
+    "generalization": {
+      "per_variant_recall": {
+        "blur": 0.8164,
+        "sensor_noise": 0.8711,
+        "underexposure": 0.9961,
+        "overexposure": 1.0,
+        "occlusion": 0.1797,
+        "colour_loss": 0.1289
+      },
+      "mean_recall": 0.6654,
+      "note": "Perception recall on a corruption never seen in training. Compare against the headline per-class recall: the gap is memorisation rather than understanding."
+    }
+  }
+}

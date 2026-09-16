@@ -14,6 +14,9 @@ _TMP = Path(tempfile.mkdtemp(prefix="aperture-test-"))
 os.environ["APERTURE_DATABASE_URL"] = f"sqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["APERTURE_LOCAL_BLOB_DIR"] = str(_TMP / "blobs")
 os.environ["APERTURE_API_KEYS"] = "demo-key:acme-robotics,other-key:other-org"
+# The suite deliberately hammers endpoints; per-org budgets would make it flaky. The limiter
+# itself is covered directly in test_ratelimit.py, which turns it back on.
+os.environ["APERTURE_RATE_LIMIT_ENABLED"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

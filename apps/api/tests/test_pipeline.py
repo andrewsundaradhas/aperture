@@ -39,7 +39,7 @@ def test_clustering_groups_similar_failures(client, auth):
     mid = _upload(client, auth, fixtures.motor_failure_lerobot("weld the seam"), "m.lerobot.json")
     client.post(f"/v1/episodes/{mid}/classify", headers=auth)
 
-    r = client.post("/v1/clusters/recompute", headers=auth)
+    r = client.post("/v1/clusters/recompute?wait=true", headers=auth)
     assert r.status_code == 200, r.text
     clusters = r.json()
     assert clusters, "expected at least one cluster"
@@ -49,7 +49,7 @@ def test_clustering_groups_similar_failures(client, auth):
 
 
 def test_dataset_export_scoped_to_cluster(client, auth):
-    client.post("/v1/clusters/recompute", headers=auth)
+    client.post("/v1/clusters/recompute?wait=true", headers=auth)
     clusters = client.get("/v1/clusters", headers=auth).json()
     cid = clusters[0]["id"]
     detail = client.get(f"/v1/clusters/{cid}", headers=auth).json()
@@ -65,12 +65,23 @@ def test_dataset_export_scoped_to_cluster(client, auth):
 
 def test_loop_verification_improved_vs_unchanged(client, auth):
     instr = "route the cable"
+    uploaded = set()
     for i, raw in enumerate(fixtures.grounding_cluster(instr, n=4)):
         eid = _upload(client, auth, raw, f"lc{i}.rlds.json")
         client.post(f"/v1/episodes/{eid}/classify", headers=auth)
-    client.post("/v1/clusters/recompute", headers=auth)
+        uploaded.add(eid)
+    client.post("/v1/clusters/recompute?wait=true", headers=auth)
     clusters = client.get("/v1/clusters", headers=auth).json()
-    cid = next(c["id"] for c in clusters if instr.lower() in c["label"] or c["dominant_surface"] == "grounding")
+
+    # Pick the cluster these episodes actually landed in, rather than the first grounding
+    # cluster in the org — the org accumulates episodes from every test sharing this database,
+    # and verifying against someone else's cluster measures nothing.
+    def overlap(cluster_id: str) -> int:
+        detail = client.get(f"/v1/clusters/{cluster_id}", headers=auth).json()
+        return len({e["id"] for e in detail["episodes"]} & uploaded)
+
+    cid = max((c["id"] for c in clusters), key=overlap)
+    assert overlap(cid) >= 2, "the uploaded episodes did not cluster together"
 
     # Improved batch: same task, now succeeds.
     improved = [

@@ -23,7 +23,7 @@ from aperture.core.models import (
     VerificationRun,
 )
 from aperture.evaluation.router import run_classification
-from aperture.ingestion.normalize import IngestionError, normalize
+from aperture.ingestion.normalize import IngestionError, normalize_many
 from aperture.ingestion.service import persist_episode
 from aperture.loop.verify import compute_verification
 
@@ -56,18 +56,28 @@ async def verify_cluster(
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Batch too large.")
 
     # Ingest + classify the post-retrain batch through the same path as Phase 1/2.
+    #
+    # `normalize_many`, not `normalize`: a retrain batch arrives in the same formats ingestion
+    # accepts — an RLDS `.tfrecord` stream or a LeRobot v3 archive, each carrying many episodes.
+    # Parsing only single-episode JSON here would reject the very files the fleet produces, so
+    # the one endpoint that proves a fix worked would be unusable on real data.
     new_batch: list[Episode] = []
     for f in files:
         raw = await f.read()
         if len(raw) > settings.max_upload_bytes:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"'{f.filename}' too large.")
         try:
-            ne = normalize(raw, f.filename or "episode.bin")
+            normalized = normalize_many(
+                raw,
+                f.filename or "episode.bin",
+                max_frames_per_episode=settings.max_frames_per_episode or None,
+            )
         except IngestionError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{f.filename}: {e}") from e
-        ep = persist_episode(db, org, ne)
-        run_classification(db, ep)
-        new_batch.append(ep)
+        for ne in normalized:
+            ep = persist_episode(db, org, ne)
+            run_classification(db, ep)
+            new_batch.append(ep)
 
     member_ids = [
         m.episode_id

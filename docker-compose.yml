@@ -1,0 +1,128 @@
+# Aperture, self-hosted. Everything runs inside your network; nothing calls out.
+#
+#   cp .env.compose.example .env && docker compose up --build
+#
+# Robotics teams generally will not ship proprietary policy rollouts to a vendor's cloud, and
+# the architecture never required it — the API is stateless, so it needs only a Postgres and an
+# S3-compatible bucket, both of which are here.
+
+name: aperture
+
+services:
+  db:
+    # pgvector is needed for the production clustering path (see infra/supabase/migrations).
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: aperture
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: aperture
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aperture -d aperture"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # S3-compatible object storage. Swap for real S3/R2 by pointing APERTURE_R2_* elsewhere.
+  storage:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aperture}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in .env}
+    volumes:
+      - storage-data:/data
+    ports:
+      - "9001:9001"   # web console; the API talks to :9000 on the internal network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: create the bucket, then exit.
+  storage-init:
+    image: minio/mc:latest
+    depends_on:
+      storage:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://storage:9000 $${MINIO_ROOT_USER:-aperture} $${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/aperture-blobs &&
+      echo 'bucket ready'"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aperture}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+
+  api:
+    build:
+      context: ./apps/api
+    depends_on:
+      db:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    environment:
+      APERTURE_ENVIRONMENT: production
+      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture:${POSTGRES_PASSWORD}@db:5432/aperture
+      APERTURE_R2_ENDPOINT_URL: http://storage:9000
+      APERTURE_R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-aperture}
+      APERTURE_R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      APERTURE_R2_BUCKET: aperture-blobs
+      APERTURE_API_KEYS: ${APERTURE_BOOTSTRAP_KEY:?set APERTURE_BOOTSTRAP_KEY in .env}:acme-robotics
+      # The worker is its own service here, so the API must not also run one on a thread.
+      APERTURE_INLINE_WORKER: "false"
+    # Migrations run before the server: the image ships alembic and its versions.
+    command: >
+      /bin/sh -c "alembic upgrade head &&
+      uvicorn aperture.main:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+
+  # Drains the job queue: cluster recompute and dataset ingestion. Separate from the API so a
+  # job that exhausts memory takes down the worker rather than the thing serving requests, and
+  # so the two scale independently — ingestion is bursty, serving is not.
+  worker:
+    build:
+      context: ./apps/api
+    depends_on:
+      db:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    environment:
+      APERTURE_ENVIRONMENT: production
+      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture:${POSTGRES_PASSWORD}@db:5432/aperture
+      APERTURE_R2_ENDPOINT_URL: http://storage:9000
+      APERTURE_R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-aperture}
+      APERTURE_R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      APERTURE_R2_BUCKET: aperture-blobs
+      APERTURE_INLINE_WORKER: "false"
+    # No migrations here — the api service owns the schema, and two containers racing
+    # `alembic upgrade head` on an empty database is a good way to get a half-applied one.
+    command: ["python", "-m", "aperture.jobs.worker"]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+    depends_on:
+      - api
+    environment:
+      # Server-side only. Never NEXT_PUBLIC_*, which would inline the key into the browser
+      # bundle for every visitor.
+      APERTURE_API_BASE_URL: http://api:8000
+      APERTURE_API_KEY: ${APERTURE_BOOTSTRAP_KEY}
+      NODE_ENV: production
+      # Gates the dashboard and its API proxy. Required here: with NODE_ENV=production and no
+      # password, the dashboard refuses every request rather than serving fleet data openly.
+      APERTURE_DASHBOARD_PASSWORD: ${APERTURE_DASHBOARD_PASSWORD:?set APERTURE_DASHBOARD_PASSWORD in .env}
+      APERTURE_SESSION_SECRET: ${APERTURE_SESSION_SECRET:-}
+    ports:
+      - "3000:3000"
+
+volumes:
+  db-data:
+  storage-data:
