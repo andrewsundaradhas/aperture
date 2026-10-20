@@ -19,7 +19,7 @@ from aperture.core.auth import resolve_org
 from aperture.core.config import get_settings
 from aperture.core.db import init_db
 from aperture.core.models import Organization
-from aperture.core.storage import get_storage
+from aperture.core.storage import get_storage, key_belongs_to
 
 # --- Optional Sentry (Phase 6) ------------------------------------------------
 _sentry_dsn = os.getenv("APERTURE_SENTRY_DSN")
@@ -85,7 +85,7 @@ def get_blob(key: str, org: Organization = Depends(resolve_org)) -> Response:
     A real R2 presigned GET carries its own scoped authorisation and bypasses this route
     entirely; this is the path used when the client is handed a `/v1/blobs/...` URL instead.
     """
-    if not key.startswith(f"{org.slug}/"):
+    if not key_belongs_to(key, org.slug):
         raise HTTPException(403, "Key does not belong to this organization.")
     try:
         data = get_storage().get_bytes(key)
@@ -106,7 +106,7 @@ async def put_blob(key: str, request: Request, org: Organization = Depends(resol
     Unlike a presigned URL — which carries its own scoped authorisation — this route is
     reachable by anyone, so it authenticates and confines each org to its own key prefix.
     """
-    if not key.startswith(f"{org.slug}/"):
+    if not key_belongs_to(key, org.slug):
         raise HTTPException(403, "Key does not belong to this organization.")
 
     settings = get_settings()

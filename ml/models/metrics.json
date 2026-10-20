@@ -1,5 +1,5 @@
 {
-  "dataset": "/Users/arshen/aperture/ml/data/xarm_lift_medium",
+  "dataset": "ml/data/xarm_lift_medium",
   "device": "mps",
   "precision": "bfloat16",
   "episodes": {

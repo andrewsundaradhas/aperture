@@ -158,9 +158,9 @@ function Panel({
             }}
             labelStyle={{ color: SMOKE }}
             labelFormatter={(t) => `frame ${t}`}
-            formatter={(value: number | string) => {
+            formatter={(value) => {
               const n = typeof value === "number" ? value : Number(value);
-              return [format(n), title];
+              return [Number.isFinite(n) ? format(n) : "—", title];
             }}
           />
           <Line

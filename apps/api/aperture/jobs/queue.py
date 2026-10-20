@@ -58,6 +58,28 @@ def claim_next(db: Session, kinds: list[str] | None = None) -> Job | None:
     longer matches and `rowcount` is 0, so we look at the next candidate instead of running a
     job someone else owns.
     """
+    if db.get_bind().dialect.name == "postgresql":
+        # Under RLS the worker has no tenant and would see no jobs at all. Ask the definer-rights
+        # lookup which org owns the oldest queued job, become that org for this transaction, and
+        # claim through the normal policy (infra/supabase/migrations/0002_job_queue.sql).
+        from sqlalchemy import bindparam, text
+        from sqlalchemy.dialects.postgresql import ARRAY
+        from sqlalchemy.types import Text
+
+        from aperture.core.auth import bind_org_to_transaction
+
+        db.info.pop("org_id", None)
+        db.rollback()  # start clean: the previous job's tenant must not carry over
+        org_id = db.execute(
+            text("select next_queued_job_org(:kinds)").bindparams(
+                bindparam("kinds", type_=ARRAY(Text))
+            ),
+            {"kinds": kinds or None},
+        ).scalar()
+        if org_id is None:
+            return None
+        bind_org_to_transaction(db, org_id)
+
     stmt = select(Job).where(Job.status == QUEUED)
     if kinds:
         stmt = stmt.where(Job.kind.in_(kinds))

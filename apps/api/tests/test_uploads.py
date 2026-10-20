@@ -7,12 +7,10 @@ impossible for real fleet video.
 
 from __future__ import annotations
 
-import json
 
 import pytest
-from sqlalchemy import select
 
-from aperture.core.models import Episode, Job, Organization
+from aperture.core.models import Episode, Job
 from aperture.jobs import queue
 
 from tests import _tfrecord_writer as w

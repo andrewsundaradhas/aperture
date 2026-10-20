@@ -1,29 +1,30 @@
 /**
  * Gate every dashboard route behind a session.
  *
- * This guards the API proxy too (`/api/aperture/*`). Guarding only the pages would be
- * decorative: the proxy is what holds the API key, so anyone who could still reach it would
- * have full access to the org's episodes without ever loading a page.
+ * The API proxy (`/api/aperture/*`) is guarded too, but by the route itself rather than here —
+ * see the matcher note below. Guarding only the pages would be decorative: the proxy is what
+ * holds the API key.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { SESSION_COOKIE, authConfig, isValidSession } from "@/lib/session";
+import { SESSION_COOKIE, authConfig, hasValidSession } from "@/lib/session";
 
-export async function middleware(request: NextRequest) {
-  const { secret, required, configured } = authConfig();
+export async function proxy(request: NextRequest) {
+  const { mode, required, configured } = authConfig();
 
   if (!required) return NextResponse.next();
 
   if (!configured) {
-    // Production without a password: refuse rather than serve fleet data to anyone with the URL.
+    // Production without a secret: refuse rather than serve fleet data to anyone with the URL.
+    const missing = mode === "org" ? "APERTURE_SESSION_SECRET" : "APERTURE_DASHBOARD_PASSWORD";
     return NextResponse.json(
-      { detail: "Dashboard auth is required but APERTURE_DASHBOARD_PASSWORD is not set." },
+      { detail: `Dashboard auth is required but ${missing} is not set.` },
       { status: 503 },
     );
   }
 
-  if (await isValidSession(request.cookies.get(SESSION_COOKIE)?.value, secret)) {
+  if (await hasValidSession(request.cookies.get(SESSION_COOKIE)?.value)) {
     return NextResponse.next();
   }
 
@@ -45,5 +46,8 @@ export const config = {
   // `icon.svg` is the App Router's generated favicon route. It is public branding, not fleet
   // data, and the browser requests it on the login page too — gated, it 307s to /login and the
   // tab renders without an icon.
-  matcher: ["/((?!login|api/auth|_next/static|_next/image|favicon.ico|icon.svg).*)"],
+  //
+  // `api/aperture` (the API proxy) is excluded and authenticates itself: Next's proxy layer
+  // buffers request bodies and truncates them past 10 MB, which corrupted dataset uploads.
+  matcher: ["/((?!login|api/auth|api/aperture|_next/static|_next/image|favicon.ico|icon.svg).*)"],
 };

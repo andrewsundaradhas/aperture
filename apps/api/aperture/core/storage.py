@@ -14,6 +14,34 @@ from pathlib import Path
 from aperture.core.config import get_settings
 
 
+class InvalidKey(ValueError):
+    """A storage key that is not a plain relative path: absolute, `..`, backslashes, empty parts."""
+
+
+def validate_key(key: str) -> str:
+    """Reject any key that could resolve outside its own prefix.
+
+    Keys reach storage from request paths (`/v1/blobs/{key}`), so a key is untrusted input. On the
+    filesystem backend `acme/../../etc/passwd` would escape the blob root; on S3 the same string is
+    a literal object name, but rejecting it everywhere keeps one rule for both backends.
+    """
+    if not key or "\\" in key or "\x00" in key or key.startswith("/"):
+        raise InvalidKey(f"invalid storage key: {key!r}")
+    parts = key.split("/")
+    if any(p in ("", ".", "..") for p in parts):
+        raise InvalidKey(f"invalid storage key: {key!r}")
+    return key
+
+
+def key_belongs_to(key: str, prefix: str) -> bool:
+    """True when `key`'s first path segment is exactly `prefix` (an org slug)."""
+    try:
+        validate_key(key)
+    except InvalidKey:
+        return False
+    return key.split("/", 1)[0] == prefix and "/" in key
+
+
 class StorageBackend:
     def put_bytes(self, key: str, data: bytes) -> str:  # returns a uri
         raise NotImplementedError
@@ -36,6 +64,10 @@ class StorageBackend:
     def exists(self, key: str) -> bool:
         raise NotImplementedError
 
+    def size(self, key: str) -> int:
+        """Stored object size in bytes, without reading it."""
+        raise NotImplementedError
+
 
 class LocalStorage(StorageBackend):
     def __init__(self, root: str) -> None:
@@ -43,7 +75,12 @@ class LocalStorage(StorageBackend):
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _path(self, key: str) -> Path:
-        p = self.root / key
+        validate_key(key)
+        root = self.root.resolve()
+        p = (root / key).resolve()
+        # Belt and braces after validate_key: a symlink inside the root must not lead out of it.
+        if not p.is_relative_to(root):
+            raise InvalidKey(f"storage key escapes the blob root: {key!r}")
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
@@ -66,9 +103,19 @@ class LocalStorage(StorageBackend):
     def exists(self, key: str) -> bool:
         return self._path(key).exists()
 
+    def size(self, key: str) -> int:
+        return self._path(key).stat().st_size
+
 
 class R2Storage(StorageBackend):
-    def __init__(self, endpoint: str, access_key: str, secret_key: str, bucket: str) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        access_key: str,
+        secret_key: str,
+        bucket: str,
+        public_endpoint: str | None = None,
+    ) -> None:
         import boto3  # imported lazily so local runs don't require configured creds
 
         self.bucket = bucket
@@ -78,24 +125,41 @@ class R2Storage(StorageBackend):
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
         )
+        # Presigned URLs are opened by the *client's* browser or uploader, and a SigV4 signature
+        # covers the host — so they must be signed for an address the client can reach. Inside
+        # docker-compose the API talks to `http://storage:9000`, a name that only resolves on
+        # the compose network; signing for it handed every uploader a dead link.
+        self.sign_client = (
+            boto3.client(
+                "s3",
+                endpoint_url=public_endpoint,
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+            )
+            if public_endpoint and public_endpoint != endpoint
+            else self.client
+        )
 
     def put_bytes(self, key: str, data: bytes) -> str:
+        validate_key(key)
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data)
         return f"r2://{self.bucket}/{key}"
 
     def get_bytes(self, key: str) -> bytes:
+        validate_key(key)
         obj = self.client.get_object(Bucket=self.bucket, Key=key)
         return obj["Body"].read()
 
     def signed_url(self, key: str, expires_in: int = 3600) -> str:
-        return self.client.generate_presigned_url(
+        return self.sign_client.generate_presigned_url(
             "get_object",
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires_in,
         )
 
     def signed_upload_url(self, key: str, expires_in: int = 3600) -> str:
-        return self.client.generate_presigned_url(
+        validate_key(key)
+        return self.sign_client.generate_presigned_url(
             "put_object",
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires_in,
@@ -110,6 +174,10 @@ class R2Storage(StorageBackend):
         except ClientError:
             return False
 
+    def size(self, key: str) -> int:
+        validate_key(key)
+        return int(self.client.head_object(Bucket=self.bucket, Key=key)["ContentLength"])
+
 
 _backend: StorageBackend | None = None
 
@@ -120,7 +188,10 @@ def get_storage() -> StorageBackend:
         return _backend
     s = get_settings()
     if s.r2_endpoint_url and s.r2_access_key_id and s.r2_secret_access_key:
-        _backend = R2Storage(s.r2_endpoint_url, s.r2_access_key_id, s.r2_secret_access_key, s.r2_bucket)
+        _backend = R2Storage(
+            s.r2_endpoint_url, s.r2_access_key_id, s.r2_secret_access_key, s.r2_bucket,
+            public_endpoint=s.r2_public_endpoint_url,
+        )
     else:
         _backend = LocalStorage(s.local_blob_dir)
     return _backend

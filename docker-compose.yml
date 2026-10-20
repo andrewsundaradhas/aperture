@@ -2,6 +2,9 @@
 #
 #   cp .env.compose.example .env && docker compose up --build
 #
+# Start order: db -> migrate (tables, as owner) -> db-security (RLS + restricted role)
+#   -> api + worker (as the restricted role). storage -> storage-init (bucket) runs alongside.
+#
 # Robotics teams generally will not ship proprietary policy rollouts to a vendor's cloud, and
 # the architecture never required it — the API is stateless, so it needs only a Postgres and an
 # S3-compatible bucket, both of which are here.
@@ -34,7 +37,10 @@ services:
     volumes:
       - storage-data:/data
     ports:
-      - "9001:9001"   # web console; the API talks to :9000 on the internal network
+      # :9000 is the S3 API. Uploaders PUT dataset archives straight to it with presigned URLs
+      # (the API never proxies the bytes), so it must be reachable from where they run.
+      - "9000:9000"
+      - "9001:9001"   # web console
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
@@ -56,52 +62,84 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aperture}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
 
+  # One-shot: create/upgrade the tables. Runs as the database owner, which is the only role
+  # allowed to change the schema.
+  migrate:
+    build:
+      context: ./apps/api
+    depends_on:
+      db:
+        condition: service_healthy
+    # Database passwords never appear inside a URL in this file: the Postgres driver (libpq)
+    # reads PGPASSWORD from the environment when the URL carries none.
+    environment:
+      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture@db:5432/aperture
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    command: ["alembic", "upgrade", "head"]
+
+  # One-shot: row-level security, the restricted `aperture_api` role (and its password), pgvector
+  # columns and the job-queue lookup — infra/supabase/migrations/*.sql, the same files and the
+  # same command a Supabase deploy uses. Without this step every tenant boundary is off.
+  db-security:
+    build:
+      context: ./apps/api
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./infra/supabase/migrations:/migrations:ro
+    environment:
+      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture@db:5432/aperture
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      # Required. Left as a plain reference on purpose: if it is unset, dbsetup exits with
+      # "--set-api-password needs APERTURE_DB_API_PASSWORD" and api/worker never start.
+      APERTURE_DB_API_PASSWORD: ${APERTURE_DB_API_PASSWORD}
+    command: ["python", "-m", "aperture.dbsetup", "--set-api-password", "/migrations"]
+
   api:
     build:
       context: ./apps/api
     depends_on:
-      db:
-        condition: service_healthy
+      db-security:
+        condition: service_completed_successfully
       storage-init:
         condition: service_completed_successfully
-    environment:
+    environment: &api-env
       APERTURE_ENVIRONMENT: production
-      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture:${POSTGRES_PASSWORD}@db:5432/aperture
+      # The restricted role: RLS applies to it. Never the owner (`aperture`), which bypasses it.
+      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture_api@db:5432/aperture
+      PGPASSWORD: ${APERTURE_DB_API_PASSWORD}
       APERTURE_R2_ENDPOINT_URL: http://storage:9000
+      # What uploaders' presigned URLs point at. Change to your host's public name/TLS address.
+      APERTURE_R2_PUBLIC_ENDPOINT_URL: ${APERTURE_PUBLIC_STORAGE_URL:-http://localhost:9000}
       APERTURE_R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-aperture}
       APERTURE_R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       APERTURE_R2_BUCKET: aperture-blobs
-      APERTURE_API_KEYS: ${APERTURE_BOOTSTRAP_KEY:?set APERTURE_BOOTSTRAP_KEY in .env}:acme-robotics
+      APERTURE_API_KEYS: ${APERTURE_BOOTSTRAP_KEY:?set APERTURE_BOOTSTRAP_KEY in .env}:${APERTURE_BOOTSTRAP_ORG:-acme-robotics}
+      # Optional: set to allow POST /v1/onboarding/signup with an X-Signup-Token header.
+      APERTURE_SIGNUP_TOKEN: ${APERTURE_SIGNUP_TOKEN:-}
       # The worker is its own service here, so the API must not also run one on a thread.
       APERTURE_INLINE_WORKER: "false"
-    # Migrations run before the server: the image ships alembic and its versions.
+    # The bootstrap key above names an org by slug; make sure that org exists (idempotent).
     command: >
-      /bin/sh -c "alembic upgrade head &&
+      /bin/sh -c "python -m aperture.admin ensure-org --slug ${APERTURE_BOOTSTRAP_ORG:-acme-robotics}
+      --name '${APERTURE_BOOTSTRAP_ORG_NAME:-Acme Robotics}' &&
       uvicorn aperture.main:app --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
 
-  # Drains the job queue: cluster recompute and dataset ingestion. Separate from the API so a
-  # job that exhausts memory takes down the worker rather than the thing serving requests, and
-  # so the two scale independently — ingestion is bursty, serving is not.
+  # Drains the job queue: dataset ingestion, classification, cluster recompute. Separate from
+  # the API so a job that exhausts memory takes down the worker rather than the thing serving
+  # requests, and so the two scale independently — ingestion is bursty, serving is not.
   worker:
     build:
       context: ./apps/api
     depends_on:
-      db:
-        condition: service_healthy
+      db-security:
+        condition: service_completed_successfully
       storage-init:
         condition: service_completed_successfully
-    environment:
-      APERTURE_ENVIRONMENT: production
-      APERTURE_DATABASE_URL: postgresql+psycopg2://aperture:${POSTGRES_PASSWORD}@db:5432/aperture
-      APERTURE_R2_ENDPOINT_URL: http://storage:9000
-      APERTURE_R2_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-aperture}
-      APERTURE_R2_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
-      APERTURE_R2_BUCKET: aperture-blobs
-      APERTURE_INLINE_WORKER: "false"
-    # No migrations here — the api service owns the schema, and two containers racing
-    # `alembic upgrade head` on an empty database is a good way to get a half-applied one.
+    environment: *api-env
     command: ["python", "-m", "aperture.jobs.worker"]
     restart: unless-stopped
 

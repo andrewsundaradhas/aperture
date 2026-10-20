@@ -96,3 +96,6 @@ class EpisodeSummary(BaseModel):
 class UploadResult(BaseModel):
     episode_ids: list[str]
     count: int
+    # Failed episodes are classified in the background (APERTURE_AUTO_CLASSIFY); poll
+    # `/v1/jobs/{classify_job_id}`. None when auto-classify is off or nothing was ingested.
+    classify_job_id: str | None = None

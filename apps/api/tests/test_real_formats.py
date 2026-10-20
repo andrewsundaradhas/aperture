@@ -11,7 +11,6 @@ import json
 import tarfile
 import zipfile
 from io import BytesIO
-from pathlib import Path
 
 import pytest
 from sqlalchemy import select

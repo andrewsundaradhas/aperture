@@ -53,9 +53,15 @@ function evidenceLine(surface: string, ev: Record<string, any>, present: boolean
       return `${blocks} sub-goal blocks, ${re} re-issued`;
     }
     case "motor": {
-      if (ev.flatline) return "force flatlined near zero — contact appears lost";
-      const z = ev.max_z;
-      return z == null ? "no force anomaly" : `peak force deviation ${num(z)}σ from median`;
+      // Two channels feed motor: contact force and the commanded action trace. Older verdicts
+      // stored the force evidence at the top level, so read both shapes.
+      const force = ev.contact_force ?? (ev.max_z != null || ev.flatline != null ? ev : null);
+      const trace = ev.action_trace;
+      const parts: string[] = [];
+      if (force?.flatline) parts.push("force flatlined near zero — contact appears lost");
+      else if (force?.max_z != null) parts.push(`peak force deviation ${num(force.max_z)}σ from median`);
+      if (trace?.max_jerk_z != null) parts.push(`largest command jump ${num(trace.max_jerk_z)}σ above typical`);
+      return parts.length ? parts.join(" · ") : "no actuation anomaly";
     }
     default:
       return "";
@@ -89,14 +95,24 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
   }
 
   const margin = typeof details?._margin === "number" ? details._margin : null;
-  const fired = confidence >= 0.005;
+  const unknown = surface === "unknown";
+  const fired = !unknown && confidence >= 0.005;
+  const learned = details?._learned;
   const ambiguous = fired && margin != null && margin < AMBIGUOUS_MARGIN;
   const inferred = details?._inferred_by_elimination;
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        {fired ? (
+        {unknown ? (
+          <p className="text-body text-forest-ink">
+            <span className="font-medium">Unknown.</span>{" "}
+            <span className="text-slate-smoke">
+              {details?._unknown?.reason ??
+                "Not enough observable signal to attribute this failure to any surface."}
+            </span>
+          </p>
+        ) : fired ? (
           <p className="text-body text-forest-ink">
             Classified as{" "}
             <span className="font-medium text-forest-ink">{surface}</span>{" "}
@@ -116,6 +132,13 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
           <p className="text-caption text-caution">
             Contested call — the runner-up is within {pct(margin!)}. Treat the surface as a
             hypothesis, not a conclusion.
+          </p>
+        )}
+        {learned && (
+          <p className="text-caption text-slate-smoke">
+            The trained failure head saw nothing visibly wrong in the first frame (
+            {pct(learned.probs?.motor ?? 0)} &ldquo;clean&rdquo;), so the verdict comes from the
+            logged signals instead.
           </p>
         )}
         {inferred && (

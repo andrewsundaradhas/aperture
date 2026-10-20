@@ -11,13 +11,21 @@ services:
     # Migrations run before the new instance takes traffic. The app's lifespan calls
     # create_all() as a local convenience, but that bypasses Alembic and would leave a
     # managed database without the RLS policies in infra/supabase/migrations.
-    preDeployCommand: alembic upgrade head
+    # Both steps need the database *owner*, not the restricted role the app runs as — the
+    # restricted role cannot create tables or policies. Hence a separate migration URL.
+    # The aperture_api password is set once, by hand, not here (see DEPLOY.md): re-setting it on
+    # every deploy makes Supabase's pooler reject the app's login for minutes.
+    preDeployCommand: >
+      APERTURE_DATABASE_URL="$APERTURE_MIGRATION_DATABASE_URL" alembic upgrade head &&
+      APERTURE_DATABASE_URL="$APERTURE_MIGRATION_DATABASE_URL" python -m aperture.dbsetup ../../infra/supabase/migrations
     startCommand: uvicorn aperture.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
       - key: APERTURE_ENVIRONMENT
         value: production
-      - key: APERTURE_DATABASE_URL   # Supabase Postgres connection string
+      - key: APERTURE_DATABASE_URL   # Supabase Postgres, as the restricted `aperture_api` role
+        sync: false
+      - key: APERTURE_MIGRATION_DATABASE_URL   # same database, as the owner (`postgres`); deploy-time only
         sync: false
       - key: APERTURE_R2_ENDPOINT_URL
         sync: false
@@ -28,6 +36,8 @@ services:
       - key: APERTURE_R2_BUCKET
         value: aperture-blobs
       - key: APERTURE_API_KEYS        # comma-separated "key:org_slug" pairs
+        sync: false
+      - key: APERTURE_SIGNUP_TOKEN    # optional: enables POST /v1/onboarding/signup with X-Signup-Token
         sync: false
       - key: APERTURE_SENTRY_DSN
         sync: false

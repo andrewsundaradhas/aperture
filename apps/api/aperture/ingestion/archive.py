@@ -37,8 +37,52 @@ def _safe_target(dest: Path, name: str) -> Path:
     return target
 
 
+_CHUNK = 1 << 20
+
+
+class _Budget:
+    """Caps what one archive may expand to, counted from bytes actually written.
+
+    Header-declared sizes are attacker-controlled (a zip can claim a 1 KB member and inflate to
+    terabytes), so the count is of real output, checked chunk by chunk, and extraction stops the
+    moment either limit is crossed — before the disk fills, not after.
+    """
+
+    def __init__(self, max_bytes: int, max_members: int) -> None:
+        self.max_bytes, self.max_members = max_bytes, max_members
+        self.bytes = 0
+        self.members = 0
+
+    def member(self, name: str) -> None:
+        self.members += 1
+        if self.members > self.max_members:
+            raise ArchiveError(
+                f"archive has more than {self.max_members} files; raise "
+                "APERTURE_MAX_ARCHIVE_MEMBERS if this dataset is legitimate."
+            )
+
+    def copy(self, source, target: Path) -> None:
+        with open(target, "wb") as out:
+            while chunk := source.read(_CHUNK):
+                self.bytes += len(chunk)
+                if self.bytes > self.max_bytes:
+                    raise ArchiveError(
+                        f"archive expands past {self.max_bytes} bytes; raise "
+                        "APERTURE_MAX_EXTRACTED_BYTES if this dataset is legitimate."
+                    )
+                out.write(chunk)
+
+
 def unpack(raw: bytes, filename: str, dest: Path) -> Path:
-    """Extract `raw` into `dest`, returning `dest`. Rejects traversal and link members."""
+    """Extract `raw` into `dest`, returning `dest`.
+
+    Rejects traversal and link members, and stops once the expanded size or file count passes
+    the configured limits (zip-bomb protection).
+    """
+    from aperture.core.config import get_settings
+
+    settings = get_settings()
+    budget = _Budget(settings.max_extracted_bytes, settings.max_archive_members)
     dest.mkdir(parents=True, exist_ok=True)
     lower = filename.lower()
 
@@ -51,9 +95,11 @@ def unpack(raw: bytes, filename: str, dest: Path) -> Path:
             for member in zf.infolist():
                 if member.is_dir():
                     continue
+                budget.member(member.filename)
                 target = _safe_target(dest, member.filename)
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(zf.read(member))
+                with zf.open(member) as source:
+                    budget.copy(source, target)
 
     elif lower.endswith((".tar", ".tar.gz", ".tgz")):
         try:
@@ -66,11 +112,12 @@ def unpack(raw: bytes, filename: str, dest: Path) -> Path:
                     raise ArchiveError(f"archive contains a link member: {member.name!r}")
                 if not member.isfile():
                     continue
+                budget.member(member.name)
                 target = _safe_target(dest, member.name)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 source = tf.extractfile(member)
                 if source is not None:
-                    target.write_bytes(source.read())
+                    budget.copy(source, target)
     else:
         raise ArchiveError(
             f"'{filename}' is not a supported archive ({', '.join(ARCHIVE_SUFFIXES)})."

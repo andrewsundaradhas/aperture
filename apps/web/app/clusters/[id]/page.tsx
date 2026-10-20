@@ -266,7 +266,7 @@ function Bar({ label, value, tone }: { label: string; value: number; tone: strin
         aria-valuemax={100}
         aria-label={`${label} success rate`}
       >
-        <div className={`w-full rounded-[4px] ${tone}`} style={{ height: `${pct}%` }} />
+        <div className={`w-full rounded-tag ${tone}`} style={{ height: `${pct}%` }} />
       </div>
       <span className="muoto text-caption text-slate-smoke">{label}</span>
       <span className="muoto text-caption tabular-nums text-forest-ink">{pct}%</span>

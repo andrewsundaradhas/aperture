@@ -155,7 +155,7 @@ def train_policy(dataset: LeRobotV3Dataset, train_eps, val_eps, args, device: st
         path = ckpt_dir / f"policy_epoch{candidate}.pt"
         if path.exists():
             print(f"[run A] resuming from {path}", flush=True)
-            model.load_state_dict(torch.load(path, map_location=device))
+            model.load_state_dict(torch.load(path, map_location=device, weights_only=True))
             start_epoch = candidate + 1
             break
 
@@ -435,7 +435,7 @@ def main() -> None:
         from aperture.ml.model import ACTION_DIM, AperturePolicy
 
         model = AperturePolicy(action_dim=ACTION_DIM).to(device)
-        model.load_state_dict(torch.load(out_dir / "policy.pt", map_location=device))
+        model.load_state_dict(torch.load(out_dir / "policy.pt", map_location=device, weights_only=True))
         policy_history = []
     else:
         model, policy_history = train_policy(dataset, train_eps, val_eps, args, device, amp_dtype)

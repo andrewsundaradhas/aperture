@@ -159,3 +159,9 @@ def test_signup_returns_a_working_key(client):
 def test_env_var_keys_still_work_for_bootstrap(client):
     """The static map remains the way to get the first key onto a fresh deployment."""
     assert client.get("/v1/episodes", headers={"X-API-Key": "demo-key"}).status_code == 200
+
+
+def test_me_names_the_callers_org(client, auth):
+    r = client.get("/v1/onboarding/me", headers=auth)
+    assert r.status_code == 200 and r.json()["slug"] == "acme-robotics"
+    assert client.get("/v1/onboarding/me", headers={"X-API-Key": "nope"}).status_code == 401

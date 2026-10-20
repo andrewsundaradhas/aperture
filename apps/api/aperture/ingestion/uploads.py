@@ -18,16 +18,15 @@ is the point of routing it through `StorageBackend`.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from aperture.core.auth import resolve_org
 from aperture.core.config import get_settings
 from aperture.core.db import get_db
 from aperture.core.models import Organization
 from aperture.core.ratelimit import ingest_limit
-from aperture.core.storage import get_storage
+from aperture.core.storage import get_storage, key_belongs_to
 from aperture.jobs.queue import enqueue
 
 router = APIRouter(prefix="/v1/uploads", tags=["ingestion"])
@@ -85,7 +84,7 @@ def presign_upload(
         key=key,
         uri=f"local://{key}" if not get_settings().r2_endpoint_url else f"r2://{get_settings().r2_bucket}/{key}",
         upload_url=storage.signed_upload_url(key, expires_in=UPLOAD_URL_TTL_SECONDS),
-        ingest_url=f"/v1/uploads/ingest",
+        ingest_url="/v1/uploads/ingest",
     )
 
 
@@ -114,7 +113,7 @@ def ingest_uploaded(
     The key must sit under the caller's own prefix — otherwise one tenant could name another
     tenant's object and have the worker ingest it into their own organization.
     """
-    if not body.key.startswith(f"{org.slug}/"):
+    if not key_belongs_to(body.key, org.slug):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Key does not belong to this organization.")
 
     storage = get_storage()
@@ -122,6 +121,13 @@ def ingest_uploaded(
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             "No object at that key. PUT the file to the presigned URL before calling ingest.",
+        )
+    size = storage.size(body.key)
+    limit = get_settings().max_ingest_bytes
+    if size > limit:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"Object is {size} bytes, over the {limit}-byte ingest limit (APERTURE_MAX_INGEST_BYTES).",
         )
 
     settings = get_settings()

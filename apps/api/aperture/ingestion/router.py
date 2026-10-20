@@ -67,8 +67,11 @@ async def upload_episodes(
         for ne in normalized:
             episode_ids.append(persist_episode(db, org, ne).id)
 
+    from aperture.jobs.handlers import enqueue_classification
+
+    classify_job_id = enqueue_classification(db, org, episode_ids)
     db.commit()
-    return UploadResult(episode_ids=episode_ids, count=len(episode_ids))
+    return UploadResult(episode_ids=episode_ids, count=len(episode_ids), classify_job_id=classify_job_id)
 
 
 @router.get("", response_model=list[EpisodeSummary])

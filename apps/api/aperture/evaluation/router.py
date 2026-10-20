@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from aperture.core.auth import resolve_org
+from aperture.core.ratelimit import recompute_limit
 from aperture.core.db import get_db
 from aperture.core.models import Episode, FailureClassification, Organization
 from aperture.evaluation.classifier import classify_frames
@@ -41,7 +42,12 @@ def run_classification(db: Session, episode: Episode) -> FailureClassification:
     image; otherwise the deterministic heuristic classifier over the per-frame signals.
     """
     learned = _learned_classification(episode)
-    if learned is not None:
+    # The FailureHead's "motor" class is trained on *untouched* frames: it means "nothing is
+    # visibly wrong with this image", not "actuation failed". On real fleet footage that is most
+    # frames, so trusting it labelled every real failure motor (40/40 on xarm_lift_medium). Only
+    # its visual verdicts are evidence; for "motor" we ask the signal channels instead and keep
+    # the head's probabilities alongside for the record.
+    if learned is not None and learned[0] != "motor":
         surface, confidence, details = learned
         method = "learned"
     else:
@@ -51,6 +57,7 @@ def run_classification(db: Session, episode: Episode) -> FailureClassification:
                 action_confidence=f.action_confidence,
                 contact_force=f.contact_force,
                 subgoal=f.subgoal,
+                action=f.action,
             )
             for f in episode.frames
         ]
@@ -61,17 +68,32 @@ def run_classification(db: Session, episode: Episode) -> FailureClassification:
             result.details,
             result.method,
         )
+        if learned is not None:
+            details = {**details, "_learned": {"surface": learned[0], **learned[2]}}
 
-    row = episode.classification
-    if row is None:
-        row = FailureClassification(episode_id=episode.id)
-        db.add(row)
-    row.surface = surface
-    row.confidence = confidence
-    row.method = method
-    row.details = details
-    db.flush()
-    return row
+    # An atomic upsert, not "read, then insert if missing". Uploads queue a background classify
+    # job, so a person pressing Classify right after uploading races the worker for the same
+    # episode; with read-then-insert both saw no row and the loser 500'd on the unique index.
+    # (Invisible locally, where the worker always won; reproduced on Supabase.)
+    import uuid
+
+    from sqlalchemy import select
+
+    values = {"surface": surface, "confidence": confidence, "method": method, "details": details}
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    else:
+        from sqlalchemy.dialects.sqlite import insert
+    db.execute(
+        insert(FailureClassification)
+        .values(id=str(uuid.uuid4()), episode_id=episode.id, **values)
+        .on_conflict_do_update(index_elements=["episode_id"], set_=values)
+    )
+    db.expire(episode, ["classification"])
+    return db.execute(
+        select(FailureClassification).where(FailureClassification.episode_id == episode.id)
+    ).scalar_one()
 
 
 @router.post("/{episode_id}/classify", response_model=ClassificationOut)
@@ -92,3 +114,31 @@ def classify_episode(
         method=row.method,
         details=row.details,
     )
+
+
+class ClassifyPendingOut(BaseModel):
+    job_id: str
+    status: str
+    poll: str
+
+
+@router.post(
+    "/classify-pending",
+    response_model=ClassifyPendingOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def classify_pending(
+    reclassify: bool = False,
+    org: Organization = Depends(recompute_limit),
+    db: Session = Depends(get_db),
+) -> ClassifyPendingOut:
+    """Classify every failed episode that has no verdict yet, in the background.
+
+    `reclassify=true` redoes all of them — after a classifier upgrade, or after enabling the
+    learned models. Poll the returned job; run `POST /v1/clusters/recompute` once it is done.
+    """
+    from aperture.jobs.queue import enqueue
+
+    job = enqueue(db, org, "classify_pending", {"reclassify": reclassify})
+    db.commit()
+    return ClassifyPendingOut(job_id=job.id, status=job.status, poll=f"/v1/jobs/{job.id}")

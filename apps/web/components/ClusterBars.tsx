@@ -36,7 +36,7 @@ export function ClusterBars({ clusters }: { clusters: Cluster[] }) {
               <span className="flex items-center gap-3">
                 {/* 4px rounded data-end, anchored to the baseline at left. */}
                 <span
-                  className="h-2.5 rounded-[4px]"
+                  className="h-2.5 rounded-tag"
                   style={{
                     width: `${Math.max((c.episode_count / max) * 100, 2)}%`,
                     background: hex,

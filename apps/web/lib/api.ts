@@ -115,6 +115,40 @@ export type Job = {
 
 export type JobAccepted = { job_id: string; status: string; poll: string };
 
+export type Org = { org_id: string; slug: string; name: string; tier: string };
+export type ApiKey = {
+  id: string;
+  prefix: string;
+  name: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+};
+export type Robot = { id: string; embodiment_type: string; policy_name: string };
+
+/** PUT a file's bytes to a presigned upload URL.
+ *
+ * On R2/S3 that URL is the bucket itself (the API never sees the bytes; the bucket needs a CORS
+ * rule allowing PUT from the dashboard origin). On the local filesystem backend it is the API's
+ * own `/v1/blobs/...` route, which is reached through this app's proxy like every other call.
+ * XHR rather than fetch so the caller gets upload progress.
+ */
+export function putUpload(uploadUrl: string, file: File, onProgress?: (fraction: number) => void): Promise<void> {
+  const url = /^https?:\/\//.test(uploadUrl) ? uploadUrl : `${BASE}${uploadUrl.startsWith("/") ? "" : "/"}${uploadUrl}`;
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? resolve()
+        : reject(new Error(`Upload failed: ${xhr.status} ${xhr.responseText.slice(0, 300)}`));
+    xhr.onerror = () =>
+      reject(new Error("Upload failed: network error (on R2/S3, check the bucket's CORS allows PUT from this origin)."));
+    xhr.send(file);
+  });
+}
+
 export class JobFailedError extends Error {
   constructor(public readonly job: Job) {
     super(job.error || `Job ${job.kind} failed`);
@@ -162,6 +196,44 @@ export const api = {
       `/v1/clusters/${id}/dataset-export`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ format }) }
     ),
+  classifyPending: (reclassify = false) =>
+    req<JobAccepted>(`/v1/episodes/classify-pending${reclassify ? "?reclassify=true" : ""}`, { method: "POST" }),
+
+  // ── uploads: presign → PUT bytes → queue ingest ──
+  presign: (filename: string) =>
+    req<{ key: string; upload_url: string; ingest_url: string }>(`/v1/uploads/presign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename }),
+    }),
+  ingest: (key: string, filename?: string) =>
+    req<JobAccepted>(`/v1/uploads/ingest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, filename }),
+    }),
+
+  // ── organization settings ──
+  me: () => req<Org>(`/v1/onboarding/me`),
+  listKeys: () => req<ApiKey[]>(`/v1/onboarding/keys`),
+  createKey: (name: string) =>
+    req<{ api_key: string }>(`/v1/onboarding/keys`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }),
+  revokeKey: async (id: string) => {
+    const res = await fetch(`${BASE}/v1/onboarding/keys/${id}`, { method: "DELETE", cache: "no-store" });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text().catch(() => "")}`);
+  },
+  listRobots: () => req<Robot[]>(`/v1/onboarding/robots?limit=500`),
+  registerRobot: (embodiment_type: string, policy_name: string) =>
+    req<Robot>(`/v1/onboarding/robots`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embodiment_type, policy_name }),
+    }),
+
   verify: (id: string, files: File[]) => {
     const fd = new FormData();
     files.forEach((f) => fd.append("files", f));
@@ -233,7 +305,7 @@ export const SURFACES = ["perception", "grounding", "motor"] as const;
 export const SURFACE_BLURB: Record<string, string> = {
   perception: "Action-confidence collapsed — the policy stopped trusting what it saw.",
   grounding: "Sub-goals kept being re-issued — the instruction never grounded stably.",
-  motor: "Contact force spiked or flatlined — the physical interaction went wrong.",
+  motor: "Contact force or the commanded actions jumped or flatlined — actuation went wrong.",
 };
 
 /** The plotted hex for each failure surface.
@@ -287,6 +359,14 @@ export function surfaceVerdict(
       label: "no failure",
       tone: "border border-lichen bg-bone-white text-forest-ink",
       hint: "Episode succeeded — there is no failure surface to attribute.",
+    };
+  }
+  if (surface === "unknown") {
+    return {
+      kind: "inconclusive",
+      label: "unknown",
+      tone: "border border-lichen bg-bone-white text-slate-smoke",
+      hint: "Not enough signal in this episode's logs to attribute the failure to any surface.",
     };
   }
   if (!surface) {

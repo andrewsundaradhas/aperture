@@ -12,7 +12,7 @@ services by setting env vars — no code changes.
 | Object storage | filesystem `.aperture_data/blobs` | **Cloudflare R2** (S3-compatible) | set `APERTURE_R2_*` |
 | ML compute | simulated heatmaps, deterministic embeddings | **Colab/Kaggle** free GPU | `ml/notebooks/attention_rollout.ipynb` |
 | VLA / vision weights | none needed | open **OpenVLA** / CLIP checkpoints | `ml/models/README.md` |
-| Auth | static API-key map (`APERTURE_API_KEYS`) | **Supabase Auth** + per-org API keys | JWT `org_id` claim drives RLS |
+| Auth | static API-key map (`APERTURE_API_KEYS`) + open signup | per-org API keys (hashed); signup closed unless `APERTURE_SIGNUP_TOKEN`; dashboard sign-in with the org's key | `APERTURE_ENVIRONMENT=production`, `python -m aperture.admin` |
 | Error tracking | off | **Sentry** free tier | set `APERTURE_SENTRY_DSN` |
 
 ## What is real vs. substituted locally

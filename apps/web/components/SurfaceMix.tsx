@@ -35,7 +35,7 @@ export function SurfaceMix({
           counts[s] ? (
             <div
               key={s}
-              className="h-full rounded-[4px]"
+              className="h-full rounded-tag"
               style={{
                 width: `${(counts[s] / total) * 100}%`,
                 background: SURFACE_HEX[s],
@@ -51,7 +51,7 @@ export function SurfaceMix({
         {SURFACES.map((s) => (
           <li key={s} className="space-y-1.5">
             <div className="flex items-baseline gap-2">
-              <Mark surface={s} size={10} className="translate-y-[1px]" />
+              <Mark surface={s} size={10} className="translate-y-px" />
               <span className="muoto text-caption text-forest-ink">{s}</span>
               <span className="ml-auto text-body-lg font-medium tabular-nums text-forest-ink">
                 {counts[s] ?? 0}

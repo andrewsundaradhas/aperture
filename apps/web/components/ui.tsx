@@ -177,7 +177,7 @@ export function ErrorNote({ error }: { error: unknown }) {
           {unreachable ? "Can’t reach the Aperture API" : "Request failed"}
         </span>
       </div>
-      <div className="muoto break-words text-caption text-slate-smoke">{msg}</div>
+      <div className="muoto wrap-break-word text-caption text-slate-smoke">{msg}</div>
       {unreachable && (
         <div className="pt-1 text-caption text-slate-smoke">
           Start it with{" "}
@@ -207,7 +207,7 @@ export function TableSkeleton({ rows = 5, cols = 6 }: { rows?: number; cols?: nu
       {Array.from({ length: rows }).map((_, r) => (
         <div key={r} className="flex gap-3">
           {Array.from({ length: cols }).map((_, c) => (
-            <Skeleton key={c} className={`h-4 ${c === 1 ? "flex-[3]" : "flex-1"}`} />
+            <Skeleton key={c} className={`h-4 ${c === 1 ? "flex-3" : "flex-1"}`} />
           ))}
         </div>
       ))}

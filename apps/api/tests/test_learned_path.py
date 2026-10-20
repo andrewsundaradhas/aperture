@@ -112,13 +112,21 @@ def test_gateway_reports_learned_enabled(learned_runtime):
 def test_classification_uses_the_learned_head(client, auth, learned_episode):
     body = client.post(f"/v1/episodes/{learned_episode.id}/classify", headers=auth).json()
 
-    assert body["method"] == "learned", "an episode with an image must take the learned branch"
-    assert body["surface"] in ["perception", "grounding", "motor"]
-    probs = body["details"]["probs"]
+    if body["method"] == "learned":
+        # A visual verdict: the head saw a degraded or ambiguous frame.
+        assert body["surface"] in ["perception", "grounding"]
+        probs = body["details"]["probs"]
+        # The reported confidence is the winning class's probability, not something else.
+        assert body["confidence"] == pytest.approx(probs[body["surface"]], abs=1e-3)
+    else:
+        # The head said "motor" (= nothing visibly wrong), so the signal channels decide, and
+        # the head's opinion is kept for the record rather than reported as the verdict.
+        assert body["method"] == "heuristic"
+        learned = body["details"]["_learned"]
+        assert learned["surface"] == "motor"
+        probs = learned["probs"]
     assert set(probs) == {"perception", "grounding", "motor"}
     assert sum(probs.values()) == pytest.approx(1.0, abs=1e-3)
-    # The reported confidence is the winning class's probability, not something else.
-    assert body["confidence"] == pytest.approx(probs[body["surface"]], abs=1e-3)
 
 
 def test_attention_heatmap_is_real_and_well_formed(client, auth, learned_episode):

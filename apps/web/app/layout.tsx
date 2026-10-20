@@ -1,46 +1,42 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Inter, IBM_Plex_Mono, JetBrains_Mono } from "next/font/google";
+// Self-hosted fonts (bundled from npm), not next/font/google: Google Fonts are fetched at build
+// time, which made every build depend on fonts.googleapis.com, and on Vercel the Turbopack
+// google-font loader failed outright ("next/font/google queries have exactly one entry").
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/jetbrains-mono/400.css";
 import "./globals.css";
 import { NavLink } from "@/components/NavLink";
 import { Chrome } from "@/components/Chrome";
 import { SignOut } from "@/components/SignOut";
-import { authConfig } from "@/lib/session";
+import { cookies } from "next/headers";
+
+import { SESSION_COOKIE, authConfig, openOrgSession } from "@/lib/session";
 
 // Substitutes for the Operate brand faces, per its own stated fallbacks:
 //   denim    → Inter            (body, headings, UI)
 //   muoto    → IBM Plex Mono    (labels, captions, axis ticks)
 //   cinetype → JetBrains Mono   (ALL-CAPS specimen labels at wide tracking)
-const denim = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-denim",
-  display: "swap",
-});
-const muoto = IBM_Plex_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500"],
-  variable: "--font-muoto",
-  display: "swap",
-});
-const cinetype = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400"],
-  variable: "--font-cinetype",
-  display: "swap",
-});
+// The --font-* variables these map to are defined in globals.css.
 
 export const metadata: Metadata = {
   title: "Aperture — VLA failure evaluation & interpretability",
   description: "Classify, attribute, cluster, and verify robot policy failures.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Server component: the session is unsealed here and only the org's display name reaches the
+  // page. The API key inside the cookie never leaves the server.
+  const auth = authConfig();
+  const org =
+    auth.mode === "org"
+      ? await openOrgSession((await cookies()).get(SESSION_COOKIE)?.value, auth.secret)
+      : null;
   return (
-    <html
-      lang="en"
-      className={`${denim.variable} ${muoto.variable} ${cinetype.variable}`}
-    >
+    <html lang="en">
       <body>
         <a
           href="#main"
@@ -68,12 +64,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <div className="flex items-center gap-5 text-body">
                   <NavLink href="/episodes">Episodes</NavLink>
                   <NavLink href="/clusters">Clusters</NavLink>
+                  <NavLink href="/upload">Upload</NavLink>
+                  <NavLink href="/settings">Settings</NavLink>
                 </div>
 
                 <div className="ml-auto flex items-center gap-4">
                   {/* The layout is a server component, so reading the auth config here never
                       ships the password or its presence check to the browser. */}
-                  <SignOut enabled={authConfig().configured} />
+                  {org && (
+                    <span className="muoto hidden text-caption text-slate-smoke md:inline" title={org.slug}>
+                      {org.name}
+                    </span>
+                  )}
+                  <SignOut enabled={auth.configured && (auth.mode === "password" || org !== null)} />
                   {/* Outlined, not filled: the system allows exactly one filled action per screen and
                       that belongs to whatever the page itself is for — exporting a dataset,
                       recomputing clusters — not to persistent chrome. */}
