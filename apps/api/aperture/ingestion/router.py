@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from aperture.core.auth import resolve_org
 from aperture.core.config import get_settings
 from aperture.core.db import get_db
-from aperture.core.models import Episode, Organization
+from aperture.core.models import Episode, FailureClassification, Organization
 from aperture.core.pagination import Page, page_params
 from aperture.core.ratelimit import ingest_limit
 from aperture.ingestion.normalize import IngestionError, normalize_many
@@ -28,6 +28,11 @@ router = APIRouter(prefix="/v1/episodes", tags=["ingestion"])
 @router.post("/upload", response_model=UploadResult, status_code=status.HTTP_201_CREATED)
 async def upload_episodes(
     files: list[UploadFile] = File(...),
+    outcome: str = Form(
+        "auto",
+        description="auto (use what the data records), or success / fail to label every episode "
+        "in this upload — for logs that do not record whether each run succeeded.",
+    ),
     org: Organization = Depends(ingest_limit),
     db: Session = Depends(get_db),
 ) -> UploadResult:
@@ -60,7 +65,9 @@ async def upload_episodes(
             normalized = normalize_many(
                 raw,
                 f.filename or "episode.bin",
+                outcome=outcome,
                 max_frames_per_episode=settings.max_frames_per_episode or None,
+                images_per_episode=settings.max_images_per_episode,
             )
         except IngestionError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{f.filename}: {e}") from e
@@ -85,9 +92,9 @@ def list_episodes(
 ) -> list[EpisodeSummary]:
     """List episodes for the caller's org, filterable by robot / failure surface / outcome.
 
-    Paginated with `limit`/`offset` (default 50). `surface` filters after the query because the
-    verdict lives on a related row; `limit` is therefore applied to the pre-filter page, which
-    is why a surface-filtered page can return fewer than `limit` rows.
+    Paginated with `limit`/`offset` (default 50). Every filter, including `surface`, is applied
+    in the query *before* the page is cut. (Filtering the cause after paging returned short pages,
+    which a client reads as "no more results" — matches past the first page silently vanished.)
     """
     stmt = select(Episode).where(Episode.org_id == org.id).order_by(
         Episode.started_at.desc(), Episode.id
@@ -96,13 +103,17 @@ def list_episodes(
         stmt = stmt.where(Episode.robot_id == robot_id)
     if outcome:
         stmt = stmt.where(Episode.outcome == outcome)
+    if surface:
+        stmt = stmt.join(
+            FailureClassification, FailureClassification.episode_id == Episode.id
+        ).where(FailureClassification.surface == surface)
+    # One query for the page's verdicts, not one per episode.
+    stmt = stmt.options(selectinload(Episode.classification))
 
     episodes = db.execute(stmt.limit(page.limit).offset(page.offset)).scalars().all()
     out: list[EpisodeSummary] = []
     for ep in episodes:
         cls = ep.classification
-        if surface and (cls is None or cls.surface != surface):
-            continue
         out.append(
             EpisodeSummary(
                 id=ep.id,

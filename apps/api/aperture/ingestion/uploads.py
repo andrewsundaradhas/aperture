@@ -18,6 +18,8 @@ is the point of routing it through `StorageBackend`.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -94,6 +96,10 @@ class IngestRequest(BaseModel):
         default=None,
         description="Overrides the reader selection; defaults to the key's own basename.",
     )
+    outcome: Literal["auto", "success", "fail"] = Field(
+        default="auto",
+        description="auto (use what the data records), or label every episode in the upload.",
+    )
 
 
 class IngestAccepted(BaseModel):
@@ -134,7 +140,7 @@ def ingest_uploaded(
     uri = f"r2://{settings.r2_bucket}/{body.key}" if settings.r2_endpoint_url else f"local://{body.key}"
     job = enqueue(
         db, org, "episode_ingest",
-        {"uri": uri, "filename": body.filename or body.key.split("/")[-1]},
+        {"uri": uri, "filename": body.filename or body.key.split("/")[-1], "outcome": body.outcome},
     )
     db.commit()
     return IngestAccepted(job_id=job.id, status=job.status, poll=f"/v1/jobs/{job.id}")

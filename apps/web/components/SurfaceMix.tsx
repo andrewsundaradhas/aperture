@@ -1,6 +1,6 @@
 "use client";
 
-import { SURFACES, SURFACE_BLURB, SURFACE_HEX } from "@/lib/api";
+import { SURFACES, SURFACE_BLURB, SURFACE_HEX, SURFACE_LABEL } from "@/lib/api";
 import { Mark } from "@/components/ui";
 
 /**
@@ -19,19 +19,17 @@ export function SurfaceMix({
   counts: Record<string, number>;
   total: number;
 }) {
+  // "Undetermined" is shown when present: hiding it would make the explained share look larger
+  // than it is.
+  const keys = [...SURFACES, ...(counts.unknown ? ["unknown"] : [])];
   if (!total) {
-    return (
-      <p className="text-body text-slate-smoke">
-        No failure has a confident surface yet. Open an episode and run{" "}
-        <span className="text-forest-ink">Classify</span>.
-      </p>
-    );
+    return <p className="text-body text-slate-smoke">No failures analysed yet.</p>;
   }
 
   return (
     <div className="space-y-5">
       <div className="flex h-3 w-full gap-[2px]" role="img" aria-label="Failure surface mix">
-        {SURFACES.map((s) =>
+        {keys.map((s) =>
           counts[s] ? (
             <div
               key={s}
@@ -39,20 +37,19 @@ export function SurfaceMix({
               style={{
                 width: `${(counts[s] / total) * 100}%`,
                 background: SURFACE_HEX[s],
-                boxShadow: "inset 0 0 0 0.5px #09352e",
               }}
-              title={`${s}: ${counts[s]}`}
+              title={`${SURFACE_LABEL[s]}: ${counts[s]}`}
             />
           ) : null,
         )}
       </div>
 
-      <ul className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-3">
-        {SURFACES.map((s) => (
+      <ul className={`grid grid-cols-1 gap-x-8 gap-y-4 ${keys.length > 3 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"}`}>
+        {keys.map((s) => (
           <li key={s} className="space-y-1.5">
             <div className="flex items-baseline gap-2">
               <Mark surface={s} size={10} className="translate-y-px" />
-              <span className="muoto text-caption text-forest-ink">{s}</span>
+              <span className="text-body text-forest-ink">{SURFACE_LABEL[s]}</span>
               <span className="ml-auto text-body-lg font-medium tabular-nums text-forest-ink">
                 {counts[s] ?? 0}
               </span>

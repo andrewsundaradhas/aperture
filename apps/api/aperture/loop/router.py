@@ -71,9 +71,19 @@ async def verify_cluster(
                 raw,
                 f.filename or "episode.bin",
                 max_frames_per_episode=settings.max_frames_per_episode or None,
+                images_per_episode=settings.max_images_per_episode,
             )
         except IngestionError as e:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{f.filename}: {e}") from e
+        # A success rate needs recorded outcomes. Files with no success flag and no reward get a
+        # default outcome on ingest, and "measuring" a retrain against defaults would report a
+        # made-up improvement.
+        if normalized and all(ne.outcome_source == "none" for ne in normalized):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"{f.filename}: these episodes don't record whether each run succeeded (no success "
+                "flag or reward), so a before/after success rate can't be measured from them.",
+            )
         for ne in normalized:
             ep = persist_episode(db, org, ne)
             run_classification(db, ep)

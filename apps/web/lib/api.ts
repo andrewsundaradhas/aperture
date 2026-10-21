@@ -115,6 +115,9 @@ export type Job = {
 
 export type JobAccepted = { job_id: string; status: string; poll: string };
 
+/** How to label the success/failure of uploaded episodes: from the data, or all one way. */
+export type Outcome = "auto" | "success" | "fail";
+
 export type Org = { org_id: string; slug: string; name: string; tier: string };
 export type ApiKey = {
   id: string;
@@ -133,6 +136,18 @@ export type Robot = { id: string; embodiment_type: string; policy_name: string }
  * own `/v1/blobs/...` route, which is reached through this app's proxy like every other call.
  * XHR rather than fetch so the caller gets upload progress.
  */
+function uploadErrorText(status: number, body: string): string {
+  if (status === 413) return "the file is larger than this workspace allows.";
+  if (status === 401 || status === 403) return "you are not signed in, or this upload link has expired.";
+  try {
+    const detail = JSON.parse(body)?.detail;
+    if (typeof detail === "string") return detail;
+  } catch {
+    /* not JSON */
+  }
+  return `the server answered ${status}.`;
+}
+
 export function putUpload(uploadUrl: string, file: File, onProgress?: (fraction: number) => void): Promise<void> {
   const url = /^https?:\/\//.test(uploadUrl) ? uploadUrl : `${BASE}${uploadUrl.startsWith("/") ? "" : "/"}${uploadUrl}`;
   return new Promise((resolve, reject) => {
@@ -142,7 +157,7 @@ export function putUpload(uploadUrl: string, file: File, onProgress?: (fraction:
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new Error(`Upload failed: ${xhr.status} ${xhr.responseText.slice(0, 300)}`));
+        : reject(new Error(`Upload failed: ${uploadErrorText(xhr.status, xhr.responseText)}`));
     xhr.onerror = () =>
       reject(new Error("Upload failed: network error (on R2/S3, check the bucket's CORS allows PUT from this origin)."));
     xhr.send(file);
@@ -206,11 +221,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ filename }),
     }),
-  ingest: (key: string, filename?: string) =>
+  ingest: (key: string, filename?: string, outcome: Outcome = "auto") =>
     req<JobAccepted>(`/v1/uploads/ingest`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key, filename }),
+      body: JSON.stringify({ key, filename, outcome }),
     }),
 
   // ── organization settings ──
@@ -258,8 +273,8 @@ export async function waitForJob(
     if (job.status === "failed") throw new JobFailedError(job);
     if (Date.now() > deadline) {
       throw new Error(
-        `Job ${jobId} still ${job.status} after ${Math.round(timeoutMs / 1000)}s. ` +
-          `Is the worker running (\`python -m aperture.jobs.worker\`)?`,
+        `Still ${job.status} after ${Math.round(timeoutMs / 1000)}s. Processing may be ` +
+          `delayed — check back shortly, or contact your administrator if it persists.`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -302,11 +317,38 @@ export async function recomputeClusters(): Promise<Cluster[]> {
 
 export const SURFACES = ["perception", "grounding", "motor"] as const;
 
-export const SURFACE_BLURB: Record<string, string> = {
-  perception: "Action-confidence collapsed — the policy stopped trusting what it saw.",
-  grounding: "Sub-goals kept being re-issued — the instruction never grounded stably.",
-  motor: "Contact force or the commanded actions jumped or flatlined — actuation went wrong.",
+/** What each failure cause means, in words an operator can act on. */
+export const SURFACE_LABEL: Record<string, string> = {
+  perception: "Perception",
+  grounding: "Instruction grounding",
+  motor: "Motor / actuation",
+  unknown: "Undetermined",
 };
+
+export const SURFACE_BLURB: Record<string, string> = {
+  perception: "The policy lost confidence in what it was seeing — camera, lighting or occlusion.",
+  grounding: "The policy kept re-planning — it never settled on what the instruction referred to.",
+  motor: "Actuation went wrong — contact force or the commanded motion spiked or dropped out.",
+  unknown: "The logs don't carry enough signal to tell which part of the system failed.",
+};
+
+export function surfaceLabel(surface: string | null | undefined): string {
+  return surface ? SURFACE_LABEL[surface] ?? surface : "Mixed";
+}
+
+/** A robot as an operator knows it: its model, and the policy running on it when known. */
+export function robotName(r: Robot | undefined): string {
+  if (!r) return "—";
+  return r.policy_name && r.policy_name !== "unknown"
+    ? `${r.embodiment_type} · ${r.policy_name}`
+    : r.embodiment_type;
+}
+
+/** A failure mode's display name: its cause plus a stable number, e.g. "Perception · mode 2". */
+export function clusterTitle(c: Pick<Cluster, "label" | "dominant_surface">): string {
+  const n = c.label.match(/cluster-(\d+)$/);
+  return `${surfaceLabel(c.dominant_surface)} · mode ${n ? Number(n[1]) + 1 : "—"}`;
+}
 
 /** The plotted hex for each failure surface.
  *
@@ -316,9 +358,10 @@ export const SURFACE_BLURB: Record<string, string> = {
  * Components import these for SVG/canvas marks, where a Tailwind class cannot reach.
  */
 export const SURFACE_HEX: Record<string, string> = {
-  perception: "#7ac98a",
-  grounding: "#00a63a",
-  motor: "#0b6b45",
+  perception: "#e894ff",
+  grounding: "#93ffe4",
+  motor: "#ffac47",
+  unknown: "#7d6a85",
 };
 
 export function surfaceColor(surface: string | null): string {
@@ -356,7 +399,7 @@ export function surfaceVerdict(
   if (outcome === "success") {
     return {
       kind: "none",
-      label: "no failure",
+      label: "No failure",
       tone: "border border-lichen bg-bone-white text-forest-ink",
       hint: "Episode succeeded — there is no failure surface to attribute.",
     };
@@ -364,7 +407,7 @@ export function surfaceVerdict(
   if (surface === "unknown") {
     return {
       kind: "inconclusive",
-      label: "unknown",
+      label: "Undetermined",
       tone: "border border-lichen bg-bone-white text-slate-smoke",
       hint: "Not enough signal in this episode's logs to attribute the failure to any surface.",
     };
@@ -372,22 +415,22 @@ export function surfaceVerdict(
   if (!surface) {
     return {
       kind: "unclassified",
-      label: "unclassified",
+      label: "Not analysed",
       tone: "border border-lichen bg-bone-white text-slate-smoke",
-      hint: "Not classified yet — run Classify on the episode.",
+      hint: "Not analysed yet. Analysis runs automatically after upload.",
     };
   }
   if (confidence != null && confidence < 0.005) {
     return {
       kind: "inconclusive",
-      label: "inconclusive",
+      label: "Undetermined",
       tone: "border border-lichen bg-bone-white text-slate-smoke",
       hint: "No heuristic fired. The surface shown by the classifier is a tie-break, not a finding.",
     };
   }
   return {
     kind: "surface",
-    label: surface,
+    label: surfaceLabel(surface),
     tone: surfaceColor(surface),
     hint: SURFACE_BLURB[surface] ?? "",
   };

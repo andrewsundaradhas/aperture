@@ -55,10 +55,10 @@ function LoginForm() {
 
   return (
     <div className="mx-auto flex min-h-[78vh] max-w-sm flex-col justify-center">
-      <div className="card gridded-fine p-8">
+      <div className="card p-8">
         <span className="tag tag-ink">Restricted</span>
-        <h1 className="mt-5 text-heading font-medium text-forest-ink">Aperture</h1>
-        <p className="mt-2 text-body text-slate-smoke">
+        <h1 className="mt-5 text-[84px] leading-[0.85] text-lavender">Aperture</h1>
+        <p className="mt-4 text-body text-slate-smoke">
           {isOrg
             ? "Sign in with your organization's API key (it starts with ak_). Your Aperture admin can issue one."
             : "This dashboard shows a fleet\u2019s failure data. Sign in to continue."}

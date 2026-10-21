@@ -126,14 +126,20 @@ def run_once(db: Session, kinds: list[str] | None = None) -> Job | None:
         db.rollback()
         # Re-read: the rollback detached whatever the handler had staged.
         job = db.get(Job, job.id)
-        job.error = f"{type(exc).__name__}: {exc}"[:2000]
         # Bad input will fail identically every time; only retry what might succeed later.
         permanent = isinstance(exc, PermanentJobError)
+        # A permanent error is a message for the person who uploaded the file, so it is stored
+        # as written; an unexpected exception keeps its type, which is what an operator needs.
+        job.error = (str(exc) if permanent else f"{type(exc).__name__}: {exc}")[:2000]
         job.status = FAILED if (permanent or job.attempts >= MAX_ATTEMPTS) else QUEUED
-        logger.warning(
-            "job %s (%s) failed on attempt %d/%d: %s\n%s",
-            job.id, job.kind, job.attempts, MAX_ATTEMPTS, job.error, traceback.format_exc(),
-        )
+        if permanent:
+            # Bad input (an unreadable upload): the uploader sees the message; one log line.
+            logger.info("job %s (%s) rejected its input: %s", job.id, job.kind, job.error)
+        else:
+            logger.warning(
+                "job %s (%s) failed on attempt %d/%d: %s\n%s",
+                job.id, job.kind, job.attempts, MAX_ATTEMPTS, job.error, traceback.format_exc(),
+            )
     finally:
         if job.status in TERMINAL:
             job.finished_at = _now()

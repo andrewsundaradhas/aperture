@@ -154,3 +154,21 @@ def test_a_malformed_upload_fails_the_job_without_retrying(client, auth, db_sess
     body = client.get(f"/v1/jobs/{job_id}", headers=auth).json()
     assert body["status"] == "failed"
     assert body["attempts"] == 1, "a malformed file should not be retried"
+
+
+def test_large_file_path_is_not_capped_by_the_small_file_limit(client, auth):
+    """The presigned/large-file PUT used the 50 MB direct-upload cap and buffered the whole body,
+    so every real robot dataset over 50 MB failed on self-hosted storage."""
+    from aperture.core.config import get_settings
+
+    s = get_settings()
+    saved = (s.max_upload_bytes, s.max_ingest_bytes)
+    s.max_upload_bytes, s.max_ingest_bytes = 1_000, 100_000
+    try:
+        p = client.post("/v1/uploads/presign", headers=auth, json={"filename": "big.rlds.json"}).json()
+        ok = client.put(p["upload_url"], headers=auth, content=b"x" * 50_000)
+        assert ok.status_code == 201 and ok.json()["bytes"] == 50_000
+        too_big = client.put(p["upload_url"], headers=auth, content=b"x" * 150_000)
+        assert too_big.status_code == 413
+    finally:
+        s.max_upload_bytes, s.max_ingest_bytes = saved

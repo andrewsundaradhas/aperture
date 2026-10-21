@@ -109,13 +109,25 @@ async def put_blob(key: str, request: Request, org: Organization = Depends(resol
     if not key_belongs_to(key, org.slug):
         raise HTTPException(403, "Key does not belong to this organization.")
 
-    settings = get_settings()
-    body = await request.body()
-    if len(body) > settings.max_upload_bytes:
-        raise HTTPException(413, f"Upload is {len(body)} bytes, over the configured limit.")
+    # This is the large-file path (the small-file limit applies to /v1/episodes/upload), so the
+    # cap is the ingest limit, and the body is streamed to a temp file in chunks: reading it into
+    # memory, under the 50 MB small-file cap, rejected every real robot dataset over 50 MB.
+    import tempfile
 
-    get_storage().put_bytes(key, body)
-    return {"key": key, "bytes": len(body)}
+    limit = get_settings().max_ingest_bytes
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(413, f"Upload is {int(declared)} bytes, over the {limit}-byte limit.")
+    size = 0
+    with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024) as buf:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise HTTPException(413, f"Upload exceeds the {limit}-byte limit.")
+            buf.write(chunk)
+        buf.seek(0)
+        get_storage().put_fileobj(key, buf)
+    return {"key": key, "bytes": size}
 
 
 # --- Layer routers ------------------------------------------------------------

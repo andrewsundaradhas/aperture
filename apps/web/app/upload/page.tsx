@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { api, putUpload, recomputeClusters, waitForJob } from "@/lib/api";
+import { Outcome, SURFACE_LABEL, api, putUpload, recomputeClusters, waitForJob } from "@/lib/api";
 import { ActionButton, ErrorNote, PageHeader, SectionHead, Spinner } from "@/components/ui";
 
 type Stage = "waiting" | "uploading" | "ingesting" | "classifying" | "done" | "failed";
@@ -18,7 +18,32 @@ type Item = {
   error?: string;
 };
 
-const ACCEPT = ".zip,.tar,.tar.gz,.tgz,.tfrecord,.json";
+// Shown as guidance only — not used as the file picker's `accept` filter: Open X-Embodiment
+// shards are named `…tfrecord-00000-of-00128`, which no `accept` pattern can match, so a filter
+// would hide the very files people need to upload. The server validates the format.
+const FORMATS = "LeRobot v3 (.zip / .tar.gz)  ·  RLDS / Open X-Embodiment (.tfrecord)  ·  episode JSON";
+
+// Public sample datasets, served from /public/samples (see scripts/build_samples.py).
+const SAMPLES = [
+  {
+    file: "xarm-lift-40-episodes.zip",
+    title: "xArm lift — 40 policy rollouts",
+    detail:
+      "LeRobot v3 · 0.9 MB · 32 failures, 8 successes. Rollouts of a pick-and-lift policy from the public lerobot/xarm_lift_medium dataset (recorded in simulation). Public datasets like this one don't log policy confidence or contact force, so its failures come back Undetermined — your own logs with those signals get specific causes.",
+  },
+  {
+    file: "signal-logged-demo.tfrecord",
+    title: "Signal-logged demo — every failure cause",
+    detail:
+      "RLDS · 13 KB · synthetic. 15 episodes carrying the per-step signals a deployed policy can log — action confidence, contact force, sub-goals — so Aperture names each cause: perception, instruction grounding and motor.",
+  },
+  {
+    file: "nyu-rot-xarm-real-robot.tfrecord",
+    title: "NYU ROT — 14 real-robot demonstrations",
+    detail:
+      "RLDS / Open X-Embodiment · 5.6 MB · real xArm hardware, tasks like “erase the board”. Demonstrations, so every episode succeeds.",
+  },
+];
 
 // Large real datasets can take a while to parse and classify; the default 2-minute poll is for
 // single jobs on small inputs.
@@ -52,10 +77,45 @@ export default function UploadPage() {
     setItems((prev) => prev.map((it, k) => (k === i ? { ...it, ...patch } : it)));
   }
 
-  function choose(files: FileList | null) {
-    if (!files?.length) return;
-    setItems(Array.from(files).map((file) => ({ file, stage: "waiting", progress: 0 })));
+  const queueRef = useRef<HTMLElement>(null);
+  const [outcome, setOutcome] = useState<Outcome>("auto");
+  const [dragging, setDragging] = useState(false);
+
+  // A file dropped just outside the drop zone would otherwise make the browser navigate away
+  // to display it, losing the page.
+  useEffect(() => {
+    const block = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", block);
+    window.addEventListener("drop", block);
+    return () => {
+      window.removeEventListener("dragover", block);
+      window.removeEventListener("drop", block);
+    };
+  }, []);
+
+  /** Picking files starts the upload straight away — there is no second step to miss. */
+  function choose(files: FileList | File[] | null) {
+    if (!files?.length || running) return;
+    const list: Item[] = Array.from(files).map((file) => ({ file, stage: "waiting", progress: 0 }));
+    setItems(list);
     setClusterNote(null);
+    // Clear the picker so choosing the same file again still fires a change event.
+    if (input.current) input.current.value = "";
+    requestAnimationFrame(() =>
+      queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+    void start(list);
+  }
+
+  async function trySample(name: string) {
+    setError(null);
+    try {
+      const res = await fetch(`/samples/${name}`);
+      if (!res.ok) throw new Error(`Couldn’t load the sample (${res.status}).`);
+      choose([new File([await res.blob()], name)]);
+    } catch (e) {
+      setError(e);
+    }
   }
 
   async function runOne(i: number, file: File) {
@@ -65,7 +125,7 @@ export default function UploadPage() {
       await putUpload(p.upload_url, file, (f) => update(i, { progress: f }));
 
       update(i, { stage: "ingesting", progress: 1 });
-      const accepted = await api.ingest(p.key, file.name);
+      const accepted = await api.ingest(p.key, file.name, outcome);
       const ingest = await waitForJob(accepted.job_id, LONG_JOB);
       const episodes = ingest.result?.count ?? 0;
       update(i, { episodes });
@@ -82,13 +142,13 @@ export default function UploadPage() {
     }
   }
 
-  async function start() {
+  async function start(list: Item[] = items) {
     setRunning(true);
     setError(null);
     // One at a time: a fleet export is usually a few large archives, and parallel uploads
     // just split the same bandwidth while multiplying the worker's memory peak.
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].stage === "waiting" || items[i].stage === "failed") await runOne(i, items[i].file);
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].stage === "waiting" || list[i].stage === "failed") await runOne(i, list[i].file);
     }
     setRunning(false);
   }
@@ -99,7 +159,11 @@ export default function UploadPage() {
     try {
       const clusters = await recomputeClusters();
       const n = clusters.reduce((a, c) => a + c.episode_count, 0);
-      setClusterNote(`${clusters.length} cluster${clusters.length === 1 ? "" : "s"} covering ${n} failed episodes.`);
+      setClusterNote(
+        clusters.length
+          ? `${clusters.length} failure mode${clusters.length === 1 ? "" : "s"} covering ${n} failed episodes.`
+          : "No recurring failure modes yet — upload more failed episodes.",
+      );
     } catch (e) {
       setError(e);
     } finally {
@@ -113,50 +177,78 @@ export default function UploadPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Upload episodes"
-        subtitle="LeRobot v3 dataset archives, RLDS / Open X-Embodiment .tfrecord shards, or episode JSON. Failed episodes are classified automatically once parsed."
+        title="Upload data"
+        subtitle="Add robot episodes. Failed episodes are analysed automatically once uploaded."
       />
 
       <ErrorNote error={error} />
 
       <section className="space-y-5">
-        <SectionHead left="files" right="sent straight to storage" title="Choose files" />
+        <SectionHead left="your data" title="Upload your own files" />
+        <label className="flex flex-wrap items-center gap-3 text-body text-slate-smoke">
+          Results in these files
+          <select
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value as Outcome)}
+            disabled={running}
+            className="field w-auto"
+            aria-label="How to label the result of each uploaded episode"
+          >
+            <option value="auto">Detect from the data (recommended)</option>
+            <option value="fail">All are failed runs</option>
+            <option value="success">All are successful runs</option>
+          </select>
+          <span className="text-caption">
+            Use this when your logs don&rsquo;t record whether each run succeeded.
+          </span>
+        </label>
         <div
-          className="card flex flex-col items-center gap-3 p-10 text-center"
-          onDragOver={(e) => e.preventDefault()}
+          className={`card flex flex-col items-center gap-3 p-10 text-center transition ${
+            dragging ? "bg-bone-white ring-2 ring-deep-fern" : ""
+          }`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
           onDrop={(e) => {
             e.preventDefault();
-            if (!running) choose(e.dataTransfer.files);
+            setDragging(false);
+            choose(e.dataTransfer.files);
           }}
         >
-          <p className="text-body text-slate-smoke">Drop files here, or</p>
+          <p className="text-body text-slate-smoke">
+            {running ? "Uploading — you can add more files when this finishes." : "Drop files here, or"}
+          </p>
           <input
             ref={input}
             type="file"
             multiple
-            accept={ACCEPT}
             className="sr-only"
             id="upload-input"
             onChange={(e) => choose(e.target.files)}
             disabled={running}
           />
-          <label htmlFor="upload-input" className="btn cursor-pointer">
-            Browse…
+          <label
+            htmlFor="upload-input"
+            className={`btn cursor-pointer ${running ? "pointer-events-none opacity-50" : ""}`}
+          >
+            Choose files…
           </label>
-          <p className="muoto text-caption text-slate-smoke">{ACCEPT.split(",").join("  ")}</p>
+          <p className="muoto text-caption text-slate-smoke">{FORMATS}</p>
         </div>
       </section>
 
       {items.length > 0 && (
-        <section className="space-y-5">
+        <section ref={queueRef} className="scroll-mt-24 space-y-5">
           <SectionHead
             left="progress"
             right={`${items.length} file${items.length === 1 ? "" : "s"}`}
-            title="Queue"
+            title="Uploads"
             action={
-              <ActionButton onClick={start} busy={running} disabled={running || finished} variant="btn-filled">
-                {running ? "Working" : "Upload & ingest"}
-              </ActionButton>
+              !running && items.some((it) => it.stage === "failed") ? (
+                <ActionButton onClick={() => start()}>Retry failed</ActionButton>
+              ) : undefined
             }
           />
           <ul className="space-y-3">
@@ -178,15 +270,16 @@ export default function UploadPage() {
                 {it.episodes != null && (
                   <p className="text-caption text-slate-smoke">
                     {it.episodes} episode{it.episodes === 1 ? "" : "s"} ingested
-                    {it.classified != null && (
+                    {it.classified === 0 && <> · no failures to analyse</>}
+                    {it.classified != null && it.classified > 0 && (
                       <>
                         {" · "}
-                        {it.classified} failure{it.classified === 1 ? "" : "s"} classified
+                        {it.classified} failure{it.classified === 1 ? "" : "s"} analysed
                         {it.surfaces && Object.keys(it.surfaces).length > 0 && (
                           <>
                             {" ("}
                             {Object.entries(it.surfaces)
-                              .map(([s, n]) => `${n} ${s}`)
+                              .map(([s, n]) => `${n} ${(SURFACE_LABEL[s] ?? s).toLowerCase()}`)
                               .join(", ")}
                             {")"}
                           </>
@@ -205,24 +298,46 @@ export default function UploadPage() {
       {finished && anyDone && (
         <section className="card flex flex-wrap items-center gap-4 p-6">
           <p className="text-body text-forest-ink">
-            Next: group the new failures into recurring modes.
+            Next: group the new failures into recurring failure modes.
             {clusterNote && <span className="ml-2 text-slate-smoke">{clusterNote}</span>}
           </p>
           <div className="ml-auto flex gap-2">
             <ActionButton onClick={cluster} busy={clustering}>
-              Recompute clusters
+              Find failure modes
             </ActionButton>
             <Link href="/episodes" className="btn">
               View episodes
             </Link>
             {clusterNote && (
               <Link href="/clusters" className="btn">
-                View clusters
+                View failure modes
               </Link>
             )}
+
+
           </div>
         </section>
       )}
+
+      <section id="samples" className="scroll-mt-24 space-y-5">
+        <SectionHead left="sample data" right="real public datasets" title="Or try it with sample data" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {SAMPLES.map((sm) => (
+            <div key={sm.file} className="card flex flex-col gap-3 p-5">
+              <div className="text-body-lg font-medium text-forest-ink">{sm.title}</div>
+              <p className="flex-1 text-body text-slate-smoke">{sm.detail}</p>
+              <div className="flex flex-wrap gap-2">
+                <ActionButton onClick={() => trySample(sm.file)} disabled={running} variant="btn-filled">
+                  Upload this sample
+                </ActionButton>
+                <a href={`/samples/${sm.file}`} download className="btn">
+                  Download
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

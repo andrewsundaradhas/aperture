@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { api, Cluster, SURFACES, recomputeClusters } from "@/lib/api";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { api, Cluster, recomputeClusters } from "@/lib/api";
 import {
   ActionButton,
   CardSkeleton,
@@ -12,7 +13,6 @@ import {
   StatTile,
 } from "@/components/ui";
 import { ClusterBars } from "@/components/ClusterBars";
-import { SurfaceMix } from "@/components/SurfaceMix";
 
 export default function ClustersPage() {
   const [clusters, setClusters] = useState<Cluster[]>([]);
@@ -47,17 +47,6 @@ export default function ClustersPage() {
 
   const total = clusters.reduce((n, c) => n + c.episode_count, 0);
 
-  // Clusters per surface — how the fleet's recurring modes distribute, not the episodes'.
-  const mix = useMemo(() => {
-    const counts = Object.fromEntries(
-      SURFACES.map((s) => [
-        s,
-        clusters.filter((c) => c.dominant_surface === s).reduce((n, c) => n + c.episode_count, 0),
-      ]),
-    ) as Record<string, number>;
-    return { counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
-  }, [clusters]);
-
   const biggest = clusters.length
     ? clusters.reduce((a, b) => (b.episode_count > a.episode_count ? b : a))
     : null;
@@ -65,11 +54,11 @@ export default function ClustersPage() {
   return (
     <div className="space-y-8">
       <PageHeader
-        title="Failure clusters"
-        subtitle="Recurring failure modes across the fleet, largest first."
+        title="Failure modes"
+        subtitle="Groups of failures that look alike. Fixing one mode fixes every episode in it."
       >
         <ActionButton onClick={recompute} busy={busy} variant="btn-filled">
-          Recompute clusters
+          Find failure modes
         </ActionButton>
       </PageHeader>
 
@@ -79,47 +68,31 @@ export default function ClustersPage() {
         <CardSkeleton />
       ) : error ? null : clusters.length === 0 ? (
         <Empty>
-          No clusters yet. Classify some failed episodes, then{" "}
-          <span className="text-forest-ink">Recompute</span>.
+          No failure modes yet.{" "}
+          <Link href="/upload" className="link">
+            Upload failed episodes
+          </Link>
+          , then press <span className="text-forest-ink">Find failure modes</span>.
         </Empty>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatTile label="Clusters" value={clusters.length} note="recurring modes" />
-            <StatTile label="Episodes clustered" value={total} note="across all modes" />
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatTile label="Failure modes" value={clusters.length} note="recurring patterns" />
+            <StatTile label="Failures covered" value={total} note="episodes in a mode" />
             <StatTile
               label="Largest mode"
               value={biggest?.episode_count ?? 0}
-              note={biggest?.label ?? "—"}
-            />
-            <StatTile
-              label="Mean size"
-              value={clusters.length ? Math.round((total / clusters.length) * 10) / 10 : 0}
-              note="episodes per mode"
+              note="episodes"
             />
           </div>
 
           <section className="space-y-5">
-            <SectionHead
-              left="cluster size"
-              right="largest first"
-              title="Every failure mode"
-            />
-            <ClusterBars clusters={clusters} />
+            <SectionHead left="episodes per mode" right="largest first" title="All failure modes" />
+            <div className="card p-3">
+              <ClusterBars clusters={clusters} />
+            </div>
           </section>
 
-          {mix.total > 0 && (
-            <section className="space-y-5">
-              <SectionHead
-                left="surface"
-                right="share of clustered"
-                title="What the modes are made of"
-              />
-              <div className="card p-6">
-                <SurfaceMix counts={mix.counts} total={mix.total} />
-              </div>
-            </section>
-          )}
         </>
       )}
     </div>

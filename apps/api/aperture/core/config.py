@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # truncating a trajectory silently teaches a fine-tune that the task ends early. Set a
     # positive cap only to bound memory on very long episodes — each truncation is logged.
     max_frames_per_episode: int = 0
+    # Frame images stored per episode, evenly spaced, first and last included (0 = every frame).
+    # States and actions are kept for every frame regardless; images are what make uploads heavy.
+    max_images_per_episode: int = 32
 
     # --- Rate limiting --------------------------------------------------------
     # Per-organization token buckets (see aperture/core/ratelimit.py). Off in tests, which

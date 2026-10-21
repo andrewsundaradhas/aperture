@@ -1,6 +1,6 @@
 "use client";
 
-import { AMBIGUOUS_MARGIN, Classification, Frame, SURFACES, SURFACE_BLURB } from "@/lib/api";
+import { AMBIGUOUS_MARGIN, Classification, Frame, SURFACES, SURFACE_BLURB, SURFACE_LABEL } from "@/lib/api";
 import { Mark } from "@/components/ui";
 
 const BAR_TONE: Record<string, string> = {
@@ -77,8 +77,8 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
   if (!classification) {
     return (
       <p className="text-body text-slate-smoke">
-        Not classified yet. Run <span className="text-forest-ink">Classify</span> to score the
-        three failure heuristics against this episode.
+        Not analysed yet. Analysis runs automatically after upload — press{" "}
+        <span className="text-forest-ink">Re-analyse</span> to run it now.
       </p>
     );
   }
@@ -98,6 +98,15 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
   const unknown = surface === "unknown";
   const fired = !unknown && confidence >= 0.005;
   const learned = details?._learned;
+  // What the episode was missing, in operator terms, for the "Undetermined" explanation.
+  const MISSING_LABEL: Record<string, string> = {
+    perception: "policy confidence",
+    grounding: "sub-goal",
+    motor: "contact force or action",
+  };
+  const missing = SURFACES.filter((s) => details?.[s] && details[s].signal_present === false).map(
+    (s) => MISSING_LABEL[s],
+  );
   const ambiguous = fired && margin != null && margin < AMBIGUOUS_MARGIN;
   const inferred = details?._inferred_by_elimination;
 
@@ -106,16 +115,18 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
       <div className="space-y-1">
         {unknown ? (
           <p className="text-body text-forest-ink">
-            <span className="font-medium">Unknown.</span>{" "}
+            <span className="font-medium">Undetermined.</span>{" "}
             <span className="text-slate-smoke">
-              {details?._unknown?.reason ??
-                "Not enough observable signal to attribute this failure to any surface."}
+              This episode&rsquo;s logs don&rsquo;t record enough to pin down the cause
+              {missing.length ? <> — no {missing.join(" or ")} data was logged</> : null}, and
+              the signals that were logged look normal. Logging policy confidence, contact force
+              or sub-goals with each episode lets Aperture identify the cause.
             </span>
           </p>
         ) : fired ? (
           <p className="text-body text-forest-ink">
             Classified as{" "}
-            <span className="font-medium text-forest-ink">{surface}</span>{" "}
+            <span className="font-medium text-forest-ink">{SURFACE_LABEL[surface] ?? surface}</span>{" "}
             at {pct(confidence)} confidence.{" "}
             <span className="text-slate-smoke">{SURFACE_BLURB[surface]}</span>
           </p>
@@ -162,9 +173,9 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
                 <span
                   className={`text-body ${won ? "font-medium text-forest-ink" : "text-forest-ink"}`}
                 >
-                  {s}
+                  {SURFACE_LABEL[s] ?? s}
                 </span>
-                {won && <span className="tag">winner</span>}
+                {won && <span className="tag">most likely</span>}
                 <span className="muoto ml-auto text-caption tabular-nums text-slate-smoke">
                   {pct(c)}
                 </span>
@@ -184,8 +195,8 @@ export function HeuristicBreakdown({ classification }: { classification: Classif
       </ul>
 
       <div className="muoto text-caption text-slate-smoke">
-        method: <span className="text-forest-ink">{method}</span>
-        {margin != null && (
+        method: <span className="text-forest-ink">{method === "heuristic" ? "signal analysis" : method}</span>
+        {margin != null && !unknown && (
           <>
             {" · "}margin over runner-up:{" "}
             <span className="tabular-nums text-forest-ink">{pct(margin)}</span>
@@ -219,7 +230,7 @@ function LearnedBreakdown({
     <div className="space-y-4">
       <p className="text-body text-forest-ink">
         Predicted{" "}
-        <span className="font-medium text-forest-ink">{surface}</span>{" "}
+        <span className="font-medium text-forest-ink">{SURFACE_LABEL[surface] ?? surface}</span>{" "}
         at {pct(confidence)} confidence.{" "}
         <span className="text-slate-smoke">
           From the trained failure head, over this episode&rsquo;s first frame image.
@@ -239,7 +250,7 @@ function LearnedBreakdown({
               <span
                 className={`text-body ${s === surface ? "font-medium" : ""} text-forest-ink`}
               >
-                {s}
+                {SURFACE_LABEL[s] ?? s}
               </span>
               {s === surface && (
                 <span className="tag">predicted</span>

@@ -49,6 +49,10 @@ class StorageBackend:
     def get_bytes(self, key: str) -> bytes:
         raise NotImplementedError
 
+    def put_fileobj(self, key: str, fileobj) -> str:
+        """Store a file-like object without holding it in memory. Returns the uri."""
+        return self.put_bytes(key, fileobj.read())
+
     def signed_url(self, key: str, expires_in: int = 3600) -> str:
         raise NotImplementedError
 
@@ -86,6 +90,11 @@ class LocalStorage(StorageBackend):
 
     def put_bytes(self, key: str, data: bytes) -> str:
         self._path(key).write_bytes(data)
+        return f"local://{key}"
+
+    def put_fileobj(self, key: str, fileobj) -> str:
+        with open(self._path(key), "wb") as out:
+            shutil.copyfileobj(fileobj, out, 1024 * 1024)
         return f"local://{key}"
 
     def get_bytes(self, key: str) -> bytes:
@@ -143,6 +152,11 @@ class R2Storage(StorageBackend):
     def put_bytes(self, key: str, data: bytes) -> str:
         validate_key(key)
         self.client.put_object(Bucket=self.bucket, Key=key, Body=data)
+        return f"r2://{self.bucket}/{key}"
+
+    def put_fileobj(self, key: str, fileobj) -> str:
+        validate_key(key)
+        self.client.upload_fileobj(fileobj, self.bucket, key)  # multipart for large files
         return f"r2://{self.bucket}/{key}"
 
     def get_bytes(self, key: str) -> bytes:

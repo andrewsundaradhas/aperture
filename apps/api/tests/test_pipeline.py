@@ -108,3 +108,17 @@ def test_cross_org_isolation(client):
     assert r.status_code == 404
     # Owner can read it.
     assert client.get(f"/v1/episodes/{eid}", headers={"X-API-Key": "demo-key"}).status_code == 200
+
+
+def test_small_recurring_cause_forms_its_own_mode_beside_a_large_one(client, auth):
+    """4 grounding failures must not vanish as noise next to many motor failures."""
+    from aperture import fixtures as fx
+    from aperture.jobs.worker import drain
+
+    files = [("files", (f"m{i}.lerobot.json", fx.motor_failure_lerobot())) for i in range(30)]
+    files += [("files", (f"g{i}.rlds.json", fx.grounding_failure_rlds("stack the cups"))) for i in range(4)]
+    client.post("/v1/episodes/upload", headers=auth, files=files)
+    drain()
+    client.post("/v1/clusters/recompute?wait=true", headers=auth)
+    surfaces = {c["dominant_surface"] for c in client.get("/v1/clusters", headers=auth).json()}
+    assert {"motor", "grounding"} <= surfaces

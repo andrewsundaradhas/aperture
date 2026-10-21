@@ -33,6 +33,10 @@ class NormalizedEpisode(BaseModel):
     policy_name: str
     instruction: str | None = None
     outcome: str  # success|fail
+    # Where `outcome` came from: "flag" (an explicit success field), "reward", "override" (the
+    # uploader said so), or "none" — the data records no outcome and `outcome` is a default.
+    # Not persisted; the verify step uses it to refuse measuring a success rate from nothing.
+    outcome_source: str = "flag"
     started_at: datetime | None = None
     frames: list[NormalizedFrame] = Field(default_factory=list)
     # Raw bytes get stored to object storage; this holds the original payload for the blob.

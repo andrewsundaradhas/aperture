@@ -96,7 +96,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div className="card p-5">
             <div className="cinetype text-[11px] text-slate-smoke">ORGANIZATION</div>
-            <div className="mt-2 text-heading-sm font-medium text-forest-ink">{org.name}</div>
+            <div className="mt-2 font-display text-heading-sm text-forest-ink">{org.name}</div>
           </div>
           <div className="card p-5">
             <div className="cinetype text-[11px] text-slate-smoke">SLUG</div>
@@ -133,14 +133,14 @@ export default function SettingsPage() {
         )}
 
         <div className="card overflow-x-auto">
-          <table className="w-full text-left text-body">
-            <thead className="muoto text-caption text-slate-smoke">
+          <table className="data">
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-normal">Key</th>
-                <th className="px-5 py-3 font-normal">Name</th>
-                <th className="px-5 py-3 font-normal">Created</th>
-                <th className="px-5 py-3 font-normal">Last used</th>
-                <th className="px-5 py-3 font-normal" />
+                <th>Key</th>
+                <th>Name</th>
+                <th>Created</th>
+                <th>Last used</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -196,12 +196,12 @@ export default function SettingsPage() {
           one here to set it up before its first upload.
         </p>
         <div className="card overflow-x-auto">
-          <table className="w-full text-left text-body">
-            <thead className="muoto text-caption text-slate-smoke">
+          <table className="data">
+            <thead>
               <tr>
-                <th className="px-5 py-3 font-normal">Embodiment</th>
-                <th className="px-5 py-3 font-normal">Policy</th>
-                <th className="px-5 py-3 font-normal">ID</th>
+                <th>Embodiment</th>
+                <th>Policy</th>
+                <th>ID</th>
               </tr>
             </thead>
             <tbody>

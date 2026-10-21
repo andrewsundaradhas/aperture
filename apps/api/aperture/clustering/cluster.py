@@ -54,7 +54,9 @@ def _hdbscan_labels(matrix: np.ndarray) -> np.ndarray:
     try:
         from sklearn.cluster import HDBSCAN  # sklearn >= 1.3
 
-        min_size = max(2, int(0.15 * len(matrix)) or 2)
+        # 15% of the group, but never more than 50: a fixed share of a large fleet made a real
+        # recurring problem of a few dozen episodes too small to count as a mode.
+        min_size = max(2, min(int(0.15 * len(matrix)), 50))
         # allow_single_cluster: without it HDBSCAN refuses to report "these are all one group"
         # and labels the whole set noise — exactly the case of a fleet failing the same way.
         labels = HDBSCAN(
@@ -85,11 +87,23 @@ def _embedding_groups(episodes: list[Episode]) -> list[tuple[list[Episode], np.n
             visual.append((ep, np.asarray(runtime.embed_image(img, ep.instruction), dtype=np.float64)))
         else:
             signature.append(ep)
-    groups = []
+    spaces = []
     if visual:
-        groups.append(([e for e, _ in visual], np.vstack([v for _, v in visual])))
+        spaces.append(([e for e, _ in visual], np.vstack([v for _, v in visual])))
     if signature:
-        groups.append((signature, np.vstack([embed_episode(e) for e in signature])))
+        spaces.append((signature, np.vstack([embed_episode(e) for e in signature])))
+
+    # Within each space, cluster each failure cause on its own. A mode is a recurring failure
+    # with one cause; clustering every cause together let 4 perception failures disappear as
+    # noise beside 1,300 undetermined ones (the size threshold scales with the group).
+    groups = []
+    for eps, matrix in spaces:
+        by_cause: dict[str, list[int]] = {}
+        for i, ep in enumerate(eps):
+            cause = ep.classification.surface if ep.classification else "unknown"
+            by_cause.setdefault(cause, []).append(i)
+        for idxs in by_cause.values():
+            groups.append(([eps[i] for i in idxs], matrix[idxs]))
     return groups
 
 

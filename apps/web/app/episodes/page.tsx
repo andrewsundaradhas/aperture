@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { EpisodeSummary, SURFACES, fetchAllEpisodes, surfaceVerdict } from "@/lib/api";
+import { useRouter, useSearchParams } from "next/navigation";
+import { EpisodeSummary, Robot, SURFACES, SURFACE_LABEL, api, fetchAllEpisodes, robotName } from "@/lib/api";
 import {
   Confidence,
   Empty,
@@ -13,26 +13,28 @@ import {
   SurfacePill,
   TableSkeleton,
 } from "@/components/ui";
-import { SurfaceMix } from "@/components/SurfaceMix";
 
-const OUTCOMES = ["", "fail", "success"];
+const CAUSES = [...SURFACES, "unknown"];
 
-export default function EpisodesPage() {
+function EpisodesView() {
   const router = useRouter();
+  const params = useSearchParams();
   const [episodes, setEpisodes] = useState<EpisodeSummary[]>([]);
-  // Facet options come from the unfiltered set. Deriving them from the filtered results
-  // makes the robot dropdown collapse to the one robot you just picked, stranding you.
-  const [allEpisodes, setAllEpisodes] = useState<EpisodeSummary[]>([]);
-  const [surface, setSurface] = useState("");
-  const [robot, setRobot] = useState("");
-  const [outcome, setOutcome] = useState("");
+  const [total, setTotal] = useState(0);
+  const [robots, setRobots] = useState<Robot[]>([]);
+  const [surface, setSurface] = useState(params.get("cause") ?? "");
+  const [robot, setRobot] = useState(params.get("robot") ?? "");
+  const [outcome, setOutcome] = useState(params.get("outcome") ?? "");
   const [query, setQuery] = useState("");
+  // Fleets run to tens of thousands of episodes; render a page at a time.
+  const [shown, setShown] = useState(100);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
+    api.listRobots().then(setRobots).catch(() => {});
     fetchAllEpisodes()
-      .then((r) => setAllEpisodes(r.episodes))
+      .then((r) => setTotal(r.episodes.length))
       .catch(() => {});
   }, []);
 
@@ -56,31 +58,15 @@ export default function EpisodesPage() {
     };
   }, [surface, robot, outcome]);
 
-  const robots = useMemo(
-    () => Array.from(new Set(allEpisodes.map((e) => e.robot_id))).sort(),
-    [allEpisodes],
-  );
+  useEffect(() => setShown(100), [surface, robot, outcome, query]);
+
+  const robotsById = useMemo(() => new Map(robots.map((r) => [r.id, r])), [robots]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return episodes;
-    return episodes.filter(
-      (e) =>
-        (e.instruction ?? "").toLowerCase().includes(q) || e.id.toLowerCase().includes(q),
-    );
+    return episodes.filter((e) => (e.instruction ?? "").toLowerCase().includes(q));
   }, [episodes, query]);
-
-  // The mix of what is currently on screen, so the strip tracks the filters.
-  const mix = useMemo(() => {
-    const attributed = visible.filter(
-      (e) =>
-        surfaceVerdict(e.surface, e.classification_confidence, e.outcome).kind === "surface",
-    );
-    const counts = Object.fromEntries(
-      SURFACES.map((s) => [s, attributed.filter((e) => e.surface === s).length]),
-    ) as Record<string, number>;
-    return { counts, total: attributed.length };
-  }, [visible]);
 
   const filtered = !!(surface || robot || outcome || query);
 
@@ -93,99 +79,89 @@ export default function EpisodesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Episodes"
-        subtitle="Every ingested episode, its failure surface and confidence."
-      />
+      <PageHeader title="Episodes" subtitle="Every uploaded episode, its result and its failure cause.">
+        <Link href="/upload" className="btn">
+          Upload data
+        </Link>
+      </PageHeader>
 
-      {/* Filters in one row above the data, per the system's control-panel layout. */}
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search instruction or id"
-          aria-label="Search episodes by instruction or id"
+          placeholder="Search tasks"
+          aria-label="Search episodes by task"
           className="field w-56"
         />
         <select
-          value={surface}
-          onChange={(e) => setSurface(e.target.value)}
-          aria-label="Filter by failure surface"
-          className="field w-auto"
-        >
-          <option value="">all surfaces</option>
-          {SURFACES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <select
           value={outcome}
           onChange={(e) => setOutcome(e.target.value)}
-          aria-label="Filter by outcome"
+          aria-label="Filter by result"
           className="field w-auto"
         >
-          {OUTCOMES.map((o) => (
-            <option key={o} value={o}>
-              {o || "all outcomes"}
-            </option>
-          ))}
+          <option value="">All results</option>
+          <option value="fail">Failed</option>
+          <option value="success">Succeeded</option>
         </select>
         <select
-          value={robot}
-          onChange={(e) => setRobot(e.target.value)}
-          aria-label="Filter by robot"
+          value={surface}
+          onChange={(e) => setSurface(e.target.value)}
+          aria-label="Filter by failure cause"
           className="field w-auto"
         >
-          <option value="">all robots</option>
-          {robots.map((r) => (
-            <option key={r} value={r}>
-              {r.slice(0, 8)}
+          <option value="">All causes</option>
+          {CAUSES.map((s) => (
+            <option key={s} value={s}>
+              {SURFACE_LABEL[s]}
             </option>
           ))}
         </select>
+        {robots.length > 1 && (
+          <select
+            value={robot}
+            onChange={(e) => setRobot(e.target.value)}
+            aria-label="Filter by robot"
+            className="field w-auto"
+          >
+            <option value="">All robots</option>
+            {robots.map((r) => (
+              <option key={r.id} value={r.id}>
+                {robotName(r)}
+              </option>
+            ))}
+          </select>
+        )}
         {filtered && (
           <button onClick={clearAll} className="btn-ghost">
-            Clear
+            Clear filters
           </button>
         )}
         <span className="muoto ml-auto text-caption tabular-nums text-slate-smoke">
-          {visible.length} / {allEpisodes.length} episodes
+          {visible.length} of {total} episodes
         </span>
       </div>
 
       <ErrorNote error={error} />
 
-      {!loading && !error && mix.total > 0 && (
-        <div className="card p-5">
-          <div className="cinetype text-[11px] text-slate-smoke">
-            Surface mix · current selection
-          </div>
-          <div className="mt-4">
-            <SurfaceMix counts={mix.counts} total={mix.total} />
-          </div>
-        </div>
-      )}
-
       {loading ? (
         <TableSkeleton />
       ) : error ? null : visible.length === 0 ? (
-        // Distinguish "nothing matches your filters" from "there is no data at all" —
-        // telling someone to seed a database that already has rows sends them the wrong way.
         <Empty>
           {filtered ? (
             <>
               No episodes match these filters.{" "}
               <button onClick={clearAll} className="link">
-                [ clear all ]
+                Clear filters
               </button>
             </>
           ) : (
             <>
-              No episodes yet. Seed the demo with{" "}
-              <span className="muoto text-forest-ink">python -m aperture.seed</span>.
+              No episodes yet.{" "}
+              <Link href="/upload" className="link">
+                Upload data
+              </Link>{" "}
+              or try a sample dataset to get started.
             </>
           )}
         </Empty>
@@ -195,40 +171,32 @@ export default function EpisodesPage() {
             <table className="data">
               <thead>
                 <tr>
-                  <th>Episode</th>
-                  <th>Instruction</th>
-                  <th>Format</th>
-                  <th>Outcome</th>
-                  <th>Surface</th>
+                  <th>Task</th>
+                  <th>Robot</th>
+                  <th>Result</th>
+                  <th>Failure cause</th>
                   <th>Confidence</th>
+                  <th>Recorded</th>
                 </tr>
               </thead>
               <tbody>
-                {visible.map((e) => (
+                {visible.slice(0, shown).map((e) => (
                   <tr
                     key={e.id}
-                    // The row carried a pointer cursor while only the id cell navigated.
-                    // Make the whole row the target it already looked like.
                     className="row-link cursor-pointer"
                     onClick={() => router.push(`/episodes/${e.id}`)}
                   >
-                    <td>
+                    <td className="max-w-xs truncate" title={e.instruction ?? ""}>
                       <Link
                         href={`/episodes/${e.id}`}
                         onClick={(ev) => ev.stopPropagation()}
-                        className="row-link-label muoto text-deep-fern"
+                        className="row-link-label text-forest-ink"
                       >
-                        {e.id.slice(0, 8)}
+                        {e.instruction ?? "Untitled episode"}
                       </Link>
                     </td>
-                    <td
-                      className="max-w-xs truncate text-forest-ink"
-                      title={e.instruction ?? ""}
-                    >
-                      {e.instruction ?? "—"}
-                    </td>
-                    <td className="muoto text-caption uppercase text-slate-smoke">
-                      {e.source_format}
+                    <td className="whitespace-nowrap text-slate-smoke">
+                      {robotName(robotsById.get(e.robot_id))}
                     </td>
                     <td>
                       <OutcomePill outcome={e.outcome} />
@@ -241,15 +209,41 @@ export default function EpisodesPage() {
                       />
                     </td>
                     <td>
-                      <Confidence value={e.classification_confidence} />
+                      {e.outcome === "success" ? (
+                        <span className="text-slate-smoke">—</span>
+                      ) : (
+                        <Confidence value={e.surface === "unknown" ? null : e.classification_confidence} />
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap text-slate-smoke">
+                      {new Date(e.started_at).toLocaleDateString()}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {visible.length > shown && (
+            <div className="flex items-center justify-between gap-3 px-4 py-3 text-caption text-slate-smoke">
+              <span>
+                Showing {shown} of {visible.length}
+              </span>
+              <button className="btn py-1.5" onClick={() => setShown((n) => n + 200)}>
+                Show more
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+export default function EpisodesPage() {
+  // useSearchParams needs a Suspense boundary for this route to render statically.
+  return (
+    <Suspense fallback={<TableSkeleton />}>
+      <EpisodesView />
+    </Suspense>
   );
 }

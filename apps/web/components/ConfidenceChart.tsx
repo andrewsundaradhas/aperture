@@ -12,9 +12,9 @@ import {
 
 type Point = { t: number; action_confidence: number | null; contact_force: number | null };
 
-const INK = "#09352e";
-const HAIRLINE = "#cad3d2";
-const SMOKE = "#6c7a79";
+const INK = "#e894ff";
+const HAIRLINE = "rgba(255,255,255,0.14)";
+const SMOKE = "#c3b0cb";
 
 /**
  * Action confidence and contact force over the episode.
@@ -149,12 +149,12 @@ function Panel({
           <Tooltip
             cursor={{ stroke: INK, strokeWidth: 1, strokeDasharray: "2 3" }}
             contentStyle={{
-              background: "#ffffff",
+              background: "#2e0838",
               border: "none",
               borderRadius: 12,
-              boxShadow: "inset 0 0 0 0.5px #cad3d2",
+              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.14)",
               fontSize: 12,
-              color: INK,
+              color: "#ffffff",
             }}
             labelStyle={{ color: SMOKE }}
             labelFormatter={(t) => `frame ${t}`}

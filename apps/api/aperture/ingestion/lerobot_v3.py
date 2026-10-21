@@ -201,6 +201,78 @@ def _png_b64(frame) -> str | None:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+# Images kept per episode, evenly spaced (first and last included). Every frame's state and
+# action are always kept; images are what make an upload heavy, and the product reads only a
+# few per episode (first frame for classification, up to 8 for attention). 0 = keep every one.
+DEFAULT_IMAGES_PER_EPISODE = 32
+# Stored images are downscaled so the longest side is at most this. The learned models read
+# 224x224, and full-resolution frames from real robot cameras are 10-40x larger for no gain.
+IMAGE_MAX_SIDE = 256
+
+
+def _camera_key(info: dict, root: "Path | None" = None) -> str | None:
+    """The camera to read. Multi-camera datasets (most real robots) get their first camera —
+    decoding every camera into one stream breaks the one-frame-per-row alignment. Falls back to
+    the folders under videos/ when meta/info.json does not list its features."""
+    feats = info.get("features", {})
+    visual = [k for k, v in feats.items() if isinstance(v, dict) and v.get("dtype") in ("video", "image")]
+    if not visual and root is not None and (root / "videos").is_dir():
+        visual = sorted(p.name for p in (root / "videos").iterdir() if p.is_dir())
+    if not visual:
+        return None
+    return "observation.image" if "observation.image" in visual else visual[0]
+
+
+def _sample_rows(rows, k: int | None) -> set[int]:
+    import numpy as np
+
+    if not k or k <= 0 or rows.size <= k:
+        return set(int(r) for r in rows)
+    idx = np.unique(np.linspace(0, rows.size - 1, k).round().astype(int))
+    return set(int(r) for r in rows[idx])
+
+
+def _encode_image(image) -> str | None:
+    """A PIL image (or HWC uint8 array) -> base64 PNG, downscaled to IMAGE_MAX_SIDE."""
+    import base64
+    import io
+
+    Image = _pillow_or_warn()
+    if Image is None:
+        return None
+    if not isinstance(image, Image.Image):
+        image = Image.fromarray(image)
+    image = image.convert("RGB")
+    image.thumbnail((IMAGE_MAX_SIDE, IMAGE_MAX_SIDE))
+    buf = io.BytesIO()
+    image.save(buf, format="PNG", optimize=False)
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _stream_video_images(files: list, n_rows: int, wanted: set[int]) -> dict[int, str]:
+    """Decode the camera's videos frame by frame, keeping (downscaled) only `wanted` rows.
+
+    Streaming is what keeps memory flat: the previous reader decoded every frame of every video
+    at full resolution into one array, which for a real robot dataset is many gigabytes.
+    """
+    import av
+
+    out: dict[int, str] = {}
+    row = 0
+    for path in files:
+        with av.open(str(path)) as container:
+            for frame in container.decode(video=0):
+                if row in wanted:
+                    out[row] = _encode_image(frame.to_image())
+                row += 1
+    if row != n_rows:
+        raise ValueError(
+            f"{row} video frames but {n_rows} parquet rows — the one-frame-per-row alignment "
+            "this reader relies on does not hold for this dataset."
+        )
+    return out
+
+
 def to_normalized_episodes(
     root,
     *,
@@ -209,8 +281,15 @@ def to_normalized_episodes(
     max_frames_per_episode: int | None = None,
     success_reward_threshold: float = SUCCESS_REWARD_THRESHOLD,
     include_images: bool = True,
+    images_per_episode: int | None = DEFAULT_IMAGES_PER_EPISODE,
+    default_outcome: str = "success",
 ) -> list:
     """Every episode in a LeRobot v3 dataset, as `NormalizedEpisode`s.
+
+    Outcome, most trustworthy signal first: the dataset's own `next.success` flag (an episode
+    succeeded if it ever reached success); else the final `next.reward` against the threshold
+    (LeRobot rewards are usually shaped and continuous); else `default_outcome` — a dataset with
+    neither is typically teleoperated demonstrations. Uploaders can override per batch.
 
     `max_frames_per_episode` truncates long episodes and logs each truncation — an episode
     silently cut short would teach a fine-tune that the task ends early. None keeps every frame.
@@ -218,44 +297,108 @@ def to_normalized_episodes(
     import logging
 
     import numpy as np
+    import pyarrow as pa
+    import pyarrow.parquet as pq
 
     from aperture.ingestion.schemas import NormalizedEpisode, NormalizedFrame
 
     logger = logging.getLogger(__name__)
-    dataset = LeRobotV3Dataset.load(root, use_cache=False)
+    root = Path(root)
+    info = json.loads((root / "meta" / "info.json").read_text())
+    if embodiment_type == "unknown":
+        # LeRobot v3 records the robot in meta/info.json; use it unless the caller named one.
+        robot_type = info.get("robot_type")
+        if robot_type and robot_type != "unknown":
+            embodiment_type = str(robot_type)
 
-    episodes = []
-    for episode_id in dataset.episode_ids():
-        rows = np.flatnonzero(dataset.episode_index == episode_id)
-        if rows.size == 0:
-            continue
+    camera = _camera_key(info, root)
+    camera_is_image_column = bool(camera) and info.get("features", {}).get(camera, {}).get("dtype") == "image"
+    wanted_cols = ["episode_index", "frame_index", "action", "observation.state", "next.reward", "next.success"]
+    if camera_is_image_column:
+        wanted_cols.append(camera)
+    data_files = sorted((root / "data").rglob("*.parquet"))
+    if not data_files:
+        raise ValueError("no data/*.parquet files in the dataset.")
+    present = set(pq.read_schema(data_files[0]).names)
+    if "episode_index" not in present:
+        raise ValueError("data parquet has no episode_index column.")
+    table = pa.concat_tables(
+        [pq.read_table(f, columns=[c for c in wanted_cols if c in present]) for f in data_files]
+    ).to_pydict()
+    n_rows = len(table["episode_index"])
+    episode_index = np.asarray(table["episode_index"], dtype=np.int64)
+    frame_index = np.asarray(table.get("frame_index") or range(n_rows), dtype=np.int64)
+    actions = table.get("action")
+    states = table.get("observation.state")
+    rewards = np.asarray(table["next.reward"], dtype=np.float32) if "next.reward" in table else None
+    successes = np.asarray(table["next.success"], dtype=bool) if "next.success" in table else None
 
+    episode_task: dict[int, str] = {}
+    ep_files = sorted((root / "meta" / "episodes").rglob("*.parquet"))
+    if ep_files:
+        ep_table = pa.concat_tables([pq.read_table(f) for f in ep_files]).to_pydict()
+        for ep, tasks in zip(ep_table.get("episode_index", []), ep_table.get("tasks", [])):
+            episode_task[int(ep)] = (tasks[0] if tasks else "") or ""
+
+    ids = np.unique(episode_index)
+    rows_by_episode = {int(e): np.flatnonzero(episode_index == e) for e in ids}
+    kept_by_episode = {}
+    for e, rows in rows_by_episode.items():
         kept = rows
         if max_frames_per_episode is not None and rows.size > max_frames_per_episode:
             kept = rows[:max_frames_per_episode]
             logger.warning(
                 "episode %s truncated from %d to %d frames by max_frames_per_episode",
-                episode_id, rows.size, max_frames_per_episode,
+                e, rows.size, max_frames_per_episode,
             )
+        kept_by_episode[e] = kept
 
+    images: dict[int, str] = {}
+    if include_images and camera:
+        wanted: set[int] = set()
+        for kept in kept_by_episode.values():
+            wanted |= _sample_rows(kept, images_per_episode)
+        if camera_is_image_column:
+            import io
+
+            Image = _pillow_or_warn()
+            for r in wanted:
+                cell = table[camera][r]
+                raw = cell.get("bytes") if isinstance(cell, dict) else cell
+                if raw and Image is not None:
+                    images[r] = _encode_image(Image.open(io.BytesIO(raw)))
+        else:
+            video_files = sorted((root / "videos" / camera).rglob("*.mp4"))
+            if video_files:
+                images = _stream_video_images(video_files, n_rows, wanted)
+
+    episodes = []
+    for e, rows in rows_by_episode.items():
+        kept = kept_by_episode[e]
         frames = [
             NormalizedFrame(
-                t=int(dataset.frame_index[row]),
-                action=[float(v) for v in dataset.actions[row]],
-                state=[float(v) for v in dataset.states[row]],
-                image_b64=_png_b64(np.asarray(dataset.frames[row])) if include_images else None,
+                t=int(frame_index[r]),
+                action=[float(v) for v in actions[r]] if actions is not None else None,
+                state=[float(v) for v in states[r]] if states is not None else None,
+                image_b64=images.get(int(r)),
             )
-            for row in kept
+            for r in kept
         ]
-
-        final_reward = float(dataset.rewards[rows[-1]])
+        if successes is not None:
+            outcome, source = ("success" if successes[rows].any() else "fail"), "flag"
+        elif rewards is not None:
+            ok = float(rewards[rows[-1]]) >= success_reward_threshold
+            outcome, source = ("success" if ok else "fail"), "reward"
+        else:
+            outcome, source = default_outcome, "none"
         episodes.append(
             NormalizedEpisode(
                 source_format="lerobot",
                 embodiment_type=embodiment_type,
                 policy_name=policy_name,
-                instruction=dataset.episode_task.get(int(episode_id)) or None,
-                outcome="success" if final_reward >= success_reward_threshold else "fail",
+                instruction=episode_task.get(e) or None,
+                outcome=outcome,
+                outcome_source=source,
                 frames=frames,
                 # Deliberately no raw blob: the source is one dataset archive shared by every
                 # episode in it, and storing a copy per episode would multiply it N times.

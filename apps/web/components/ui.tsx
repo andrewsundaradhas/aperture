@@ -14,16 +14,19 @@ import { SURFACE_HEX, surfaceVerdict } from "@/lib/api";
 /** A single plotted circle, in the system's hollow/filled data-point language. */
 export function Mark({
   surface,
+  color,
   filled = true,
   size = 10,
   className = "",
 }: {
   surface?: string | null;
+  /** An explicit colour, for marks that are not a failure cause (e.g. a result). */
+  color?: string;
   filled?: boolean;
   size?: number;
   className?: string;
 }) {
-  const hex = surface ? SURFACE_HEX[surface] : undefined;
+  const hex = color ?? (surface ? SURFACE_HEX[surface] : undefined);
   const r = size / 2 - 0.75;
   return (
     <svg width={size} height={size} className={className} aria-hidden>
@@ -31,8 +34,8 @@ export function Mark({
         cx={size / 2}
         cy={size / 2}
         r={r}
-        fill={filled && hex ? hex : "#ffffff"}
-        stroke="#09352e"
+        fill={filled && hex ? hex : "transparent"}
+        stroke={filled && hex ? hex : "rgba(255,255,255,0.6)"}
         strokeWidth="1"
       />
     </svg>
@@ -70,35 +73,10 @@ export function OutcomePill({ outcome }: { outcome: string }) {
       className="pill border border-lichen bg-bone-white text-forest-ink"
       title={ok ? "The episode met its task goal." : "The episode did not meet its task goal."}
     >
-      <Mark filled={!ok} surface={!ok ? "motor" : null} size={8} />
-      {outcome}
+      {/* Its own colour, not a failure cause's — a red-ish dot must not read as "Motor". */}
+      <Mark filled={!ok} color={!ok ? "#ff8f7d" : undefined} size={8} />
+      {ok ? "Succeeded" : "Failed"}
     </span>
-  );
-}
-
-/** Legend for the three failure surfaces. Always rendered wherever surfaces are plotted —
- *  with a sub-3:1 lightest step, the label is what makes the mark legible. */
-export function SurfaceLegend({
-  counts,
-  className = "",
-}: {
-  counts?: Record<string, number>;
-  className?: string;
-}) {
-  return (
-    <ul className={`flex flex-wrap items-center gap-x-5 gap-y-2 ${className}`}>
-      {(["perception", "grounding", "motor"] as const).map((s) => (
-        <li key={s} className="flex items-center gap-1.5">
-          <Mark surface={s} size={10} />
-          <span className="muoto text-caption text-forest-ink">{s}</span>
-          {counts && (
-            <span className="muoto text-caption tabular-nums text-slate-smoke">
-              {counts[s] ?? 0}
-            </span>
-          )}
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -168,23 +146,29 @@ export function ActionButton({
 export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
   const msg = String((error as Error)?.message ?? error);
-  const unreachable = /failed to fetch|networkerror|load failed/i.test(msg);
+  const unreachable = /failed to fetch|networkerror|load failed|cannot reach/i.test(msg);
+  const signedOut = /^401\b/.test(msg);
   return (
     <div role="alert" className="card space-y-1.5 p-5">
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-alarm" aria-hidden />
         <span className="text-body font-medium text-alarm">
-          {unreachable ? "Can’t reach the Aperture API" : "Request failed"}
+          {unreachable
+            ? "Can’t reach the Aperture service"
+            : signedOut
+              ? "Your session has expired"
+              : "Something went wrong"}
         </span>
       </div>
-      <div className="muoto wrap-break-word text-caption text-slate-smoke">{msg}</div>
-      {unreachable && (
-        <div className="pt-1 text-caption text-slate-smoke">
-          Start it with{" "}
-          <span className="muoto text-forest-ink">
-            cd apps/api &amp;&amp; uvicorn aperture.main:app --reload
-          </span>
-        </div>
+      <div className="text-body text-slate-smoke">
+        {unreachable
+          ? "Try again in a moment. If it keeps happening, contact your Aperture administrator."
+          : signedOut
+            ? "Sign in again to continue."
+            : "Try again. If it keeps happening, send the details below to your Aperture administrator."}
+      </div>
+      {!unreachable && !signedOut && (
+        <div className="muoto wrap-break-word text-caption text-slate-smoke/80">{msg}</div>
       )}
     </div>
   );
@@ -248,9 +232,9 @@ export function AxisLabel({
 }) {
   return (
     <span
-      className={`muoto text-caption text-slate-smoke ${align === "right" ? "text-right" : ""}`}
+      className={`cinetype text-[11px] text-slate-smoke ${align === "right" ? "text-right" : ""}`}
     >
-      [ {children} ]
+      {children}
     </span>
   );
 }
@@ -275,7 +259,7 @@ export function SectionHead({
       </div>
       <div className="h-px w-full bg-lichen" aria-hidden />
       <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
-        <h2 className="text-heading-sm font-medium text-forest-ink">{title}</h2>
+        <h2 className="text-heading-sm text-forest-ink">{title}</h2>
         {action}
       </div>
     </div>
@@ -293,8 +277,8 @@ export function PageHeader({
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <div className="space-y-1">
-        <h1 className="text-heading font-medium text-forest-ink">{title}</h1>
+      <div className="space-y-3">
+        <h1 className="text-heading text-lavender">{title}</h1>
         {subtitle && <p className="max-w-xl text-body text-slate-smoke">{subtitle}</p>}
       </div>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
@@ -315,7 +299,7 @@ export function StatTile({
   return (
     <div className="card p-5">
       <div className="cinetype text-[11px] text-slate-smoke">{label}</div>
-      <div className="mt-2 text-heading font-medium tabular-nums text-forest-ink">{value}</div>
+      <div className="mt-3 font-display text-[56px] leading-[0.9] tabular-nums text-forest-ink">{value}</div>
       {note && <div className="muoto mt-1 text-caption text-slate-smoke">{note}</div>}
     </div>
   );

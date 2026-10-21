@@ -142,7 +142,13 @@ def test_ingest_refuses_objects_over_the_ingest_limit(client, auth):
     s.max_ingest_bytes = 10
     try:
         p = client.post("/v1/uploads/presign", headers=auth, json={"filename": "big.rlds.json"}).json()
-        assert client.put(p["upload_url"], headers=auth, content=b"x" * 100).status_code == 201
+        # The upload route itself now refuses it…
+        assert client.put(p["upload_url"], headers=auth, content=b"x" * 100).status_code == 413
+        # …and on R2 the bytes bypass that route (presigned PUT to the bucket), so ingest must
+        # still refuse an oversized object that is already in storage.
+        from aperture.core.storage import get_storage
+
+        get_storage().put_bytes(p["key"], b"x" * 100)
         assert client.post("/v1/uploads/ingest", headers=auth, json={"key": p["key"]}).status_code == 413
     finally:
         s.max_ingest_bytes = saved

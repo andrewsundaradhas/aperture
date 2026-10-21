@@ -67,3 +67,21 @@ def test_missing_api_key_rejected(client):
     files = [("files", ("a.rlds.json", fixtures.success_rlds(), "application/json"))]
     r = client.post("/v1/episodes/upload", files=files)
     assert r.status_code == 401
+
+
+def test_cause_filter_applies_before_paging(client, auth):
+    """A failure-cause filter must find matches beyond the first page. It used to be applied to
+    each page after paging, so a page came back short and clients stopped looking."""
+    from aperture import fixtures as fx
+    from aperture.jobs.worker import drain
+
+    # Enough newer, differently-classified failures to push the target past page one.
+    client.post("/v1/episodes/upload", headers=auth, files=[("files", ("p.rlds.json", fx.perception_failure_rlds("needle task")))])
+    drain()
+    for i in range(6):
+        client.post("/v1/episodes/upload", headers=auth, files=[("files", (f"m{i}.lerobot.json", fx.motor_failure_lerobot()))])
+    drain()
+    page = client.get("/v1/episodes?surface=perception&limit=3", headers=auth).json()
+    assert page, "perception episodes exist but the filtered first page was empty"
+    assert all(e["surface"] == "perception" for e in page)
+    assert len(page) == min(3, len(client.get("/v1/episodes?surface=perception&limit=500", headers=auth).json()))

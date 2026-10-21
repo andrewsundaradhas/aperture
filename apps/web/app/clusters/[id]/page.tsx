@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, blobUrl, ClusterDetail, SURFACE_BLURB, VerifyResult } from "@/lib/api";
+import { api, blobUrl, ClusterDetail, SURFACE_BLURB, VerifyResult, clusterTitle } from "@/lib/api";
 import {
   ActionButton,
   Empty,
@@ -25,6 +25,8 @@ export default function ClusterDetailPage() {
   const [format, setFormat] = useState("lerobot");
   const [verify, setVerify] = useState<VerifyResult | null>(null);
   const [fileCount, setFileCount] = useState(0);
+  // Large modes hold thousands of episodes; render a page at a time.
+  const [shown, setShown] = useState(50);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(() => {
@@ -72,32 +74,31 @@ export default function ClusterDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <Link href="/clusters" className="link">
-          &larr; Clusters
+      {/* Its own layer: the condensed headline's tall glyph box sits over it and swallowed clicks. */}
+      <div className="relative z-10">
+        <Link href="/clusters" className="link inline-block py-1 text-body">
+          &larr; Failure modes
         </Link>
-        <SurfacePill surface={cluster.dominant_surface} />
-        <span className="muoto text-body text-forest-ink">{cluster.label}</span>
-        <span className="ml-auto text-body text-slate-smoke">
-          {cluster.episode_count} episode{cluster.episode_count === 1 ? "" : "s"}
-        </span>
       </div>
 
-      {cluster.dominant_surface && (
+      <div className="space-y-2">
+        <h1 className="text-heading text-lavender">{clusterTitle(cluster)}</h1>
         <p className="max-w-2xl text-body leading-relaxed text-slate-smoke">
-          {SURFACE_BLURB[cluster.dominant_surface]}
+          {cluster.episode_count} failed episode{cluster.episode_count === 1 ? "" : "s"} that look
+          alike.{" "}
+          {cluster.dominant_surface ? SURFACE_BLURB[cluster.dominant_surface] : ""}
         </p>
-      )}
+      </div>
 
       <ErrorNote error={error} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {/* Scoped dataset export */}
         <div className="card space-y-3 p-4">
-          <Eyebrow>Scoped fine-tune export</Eyebrow>
+          <Eyebrow>Export as training data</Eyebrow>
           <p className="text-body text-slate-smoke">
-            Exports only this cluster&rsquo;s {cluster.episode_count} episodes — not the whole
-            fleet.
+            Download just these {cluster.episode_count} episodes to fine-tune your policy on this
+            failure mode.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="export-format" className="sr-only">
@@ -109,8 +110,8 @@ export default function ClusterDetailPage() {
               onChange={(e) => setFormat(e.target.value)}
               className="field w-auto"
             >
-              <option value="lerobot">LeRobot</option>
-              <option value="rlds">RLDS</option>
+              <option value="lerobot">LeRobot format</option>
+              <option value="rlds">RLDS format</option>
             </select>
             <ActionButton
               onClick={doExport}
@@ -118,14 +119,14 @@ export default function ClusterDetailPage() {
               disabled={!!busy}
               variant="btn-filled"
             >
-              Export dataset
+              Export
             </ActionButton>
           </div>
           {exportUrl && (
             <a
               href={exportUrl}
-              target="_blank"
-              rel="noreferrer"
+              // Save the file rather than open it in a tab: it is a dataset, not a page.
+              download={`${clusterTitle(cluster).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${format}.json`}
               className="link inline-flex items-center gap-1.5 text-body"
             >
               &darr; Download {exportCount ?? cluster.episode_count} episodes ·{" "}
@@ -136,10 +137,10 @@ export default function ClusterDetailPage() {
 
         {/* Loop-closure verify */}
         <div className="card space-y-3 p-4">
-          <Eyebrow>Verify fix (loop closure)</Eyebrow>
+          <Eyebrow>Check a retrained policy</Eyebrow>
           <p className="text-body text-slate-smoke">
-            Upload a post-retrain batch of the same tasks; Aperture re-measures the same failure
-            signature and computes the before/after delta.
+            After retraining, upload new episodes of the same tasks. Aperture compares the success
+            rate before and after.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="verify-files" className="btn cursor-pointer">
@@ -164,7 +165,7 @@ export default function ClusterDetailPage() {
               busy={busy === "verify"}
               disabled={!!busy || fileCount === 0}
             >
-              Run verification
+              Compare
             </ActionButton>
           </div>
           {verify && <BeforeAfter v={verify} />}
@@ -173,38 +174,36 @@ export default function ClusterDetailPage() {
 
       <div className="card overflow-hidden">
         <div className="border-b border-lichen px-4 py-3">
-          <Eyebrow>Episodes in this cluster</Eyebrow>
+          <Eyebrow>Episodes in this failure mode</Eyebrow>
         </div>
         {cluster.episodes.length === 0 ? (
-          <Empty>Empty cluster.</Empty>
+          <Empty>No episodes in this failure mode.</Empty>
         ) : (
           <div className="table-scroll">
             <table className="data">
               <thead>
                 <tr>
-                  <th>Episode</th>
-                  <th>Instruction</th>
-                  <th>Outcome</th>
-                  <th>Surface</th>
+                  <th>Task</th>
+                  <th>Result</th>
+                  <th>Failure cause</th>
                 </tr>
               </thead>
               <tbody>
-                {cluster.episodes.map((e) => (
+                {cluster.episodes.slice(0, shown).map((e) => (
                   <tr
                     key={e.id}
                     className="row-link cursor-pointer"
                     onClick={() => router.push(`/episodes/${e.id}`)}
                   >
-                    <td>
+                    <td className="max-w-md truncate">
                       <Link
                         href={`/episodes/${e.id}`}
                         onClick={(ev) => ev.stopPropagation()}
-                        className="row-link-label muoto text-deep-fern"
+                        className="row-link-label text-forest-ink"
                       >
-                        {e.id.slice(0, 8)}
+                        {e.instruction ?? "Untitled episode"}
                       </Link>
                     </td>
-                    <td className="text-forest-ink">{e.instruction ?? "—"}</td>
                     <td>
                       <OutcomePill outcome={e.outcome} />
                     </td>
@@ -215,6 +214,16 @@ export default function ClusterDetailPage() {
                 ))}
               </tbody>
             </table>
+            {cluster.episodes.length > shown && (
+              <div className="flex items-center justify-between gap-3 px-4 py-3 text-caption text-slate-smoke">
+                <span>
+                  Showing {shown} of {cluster.episodes.length} episodes
+                </span>
+                <button className="btn py-1.5" onClick={() => setShown((n) => n + 100)}>
+                  Show more
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -223,6 +232,16 @@ export default function ClusterDetailPage() {
 }
 
 function BeforeAfter({ v }: { v: VerifyResult }) {
+  // No uploaded episode resembles this failure mode (different task or failure signature):
+  // there is nothing to compare, which is not the same as the success rate dropping to zero.
+  if (v.post_n === 0) {
+    return (
+      <p className="border-t border-lichen pt-3 text-body text-caution">
+        None of the uploaded episodes match this failure mode, so there&rsquo;s nothing to
+        compare yet. Upload new runs of the same tasks after retraining.
+      </p>
+    );
+  }
   const positive = v.delta > 0.001;
   const regressed = v.delta < -0.001;
   return (
@@ -231,9 +250,9 @@ function BeforeAfter({ v }: { v: VerifyResult }) {
         <Bar label="before" value={v.pre_success_rate} tone="bg-lichen" />
         <Bar label="after" value={v.post_success_rate} tone={positive ? "bg-moss" : "bg-lichen"} />
         <div className="ml-auto text-right">
-          <div className="muoto text-caption text-slate-smoke">success-rate &Delta;</div>
+          <div className="muoto text-caption text-slate-smoke">change in success rate</div>
           <div
-            className={`text-heading font-medium tabular-nums ${
+            className={`font-display text-heading-sm tabular-nums ${
               positive ? "text-deep-fern" : regressed ? "text-alarm" : "text-slate-smoke"
             }`}
           >
@@ -243,11 +262,11 @@ function BeforeAfter({ v }: { v: VerifyResult }) {
         </div>
       </div>
       <div className="muoto text-caption text-slate-smoke">
-        n={v.pre_n} before · n={v.post_n} matched after
+        {v.pre_n} episodes before · {v.post_n} matching episodes after
       </div>
       {!positive && !regressed && (
         <p className="text-caption text-caution">
-          No measurable movement — the retrain did not shift this failure signature.
+          No measurable change — the retrained policy still fails this way.
         </p>
       )}
     </div>

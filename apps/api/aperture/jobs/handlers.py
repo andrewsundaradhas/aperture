@@ -56,7 +56,9 @@ def episode_ingest(db: Session, job: Job) -> dict:
     try:
         episodes = normalize_many(
             raw, filename,
+            outcome=job.payload.get("outcome") or "auto",
             max_frames_per_episode=get_settings().max_frames_per_episode or None,
+            images_per_episode=get_settings().max_images_per_episode,
         )
     except IngestionError as exc:
         # A malformed upload is the user's problem, not a transient fault — do not burn retries.
