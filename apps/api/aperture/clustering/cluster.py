@@ -25,37 +25,86 @@ from aperture.core.models import (
 from aperture.ml import gateway, runtime
 
 
+def _absorb_noise(matrix: np.ndarray, labels: np.ndarray) -> np.ndarray:
+    """Give a noise point to the nearest cluster when it lies within that cluster's own extent.
+
+    HDBSCAN marks the fringe of a single dense group as noise even when those points sit inside
+    the group's radius; on a fleet where most failures look alike that left most of them
+    unclustered. A point farther out than every member of its nearest cluster stays noise.
+    """
+    ids = sorted(set(labels.tolist()) - {-1})
+    if not ids or (labels != -1).all():
+        return labels
+    centroids = {k: matrix[labels == k].mean(axis=0) for k in ids}
+    radius = {
+        k: float(np.linalg.norm(matrix[labels == k] - centroids[k], axis=1).max()) for k in ids
+    }
+    out = labels.copy()
+    for i in np.where(labels == -1)[0]:
+        dist = {k: float(np.linalg.norm(matrix[i] - centroids[k])) for k in ids}
+        k = min(dist, key=dist.get)
+        if dist[k] <= radius[k] + 1e-9:
+            out[i] = k
+    return out
+
+
 def _hdbscan_labels(matrix: np.ndarray) -> np.ndarray:
+    if len(matrix) < 2:
+        return np.full(len(matrix), -1, dtype=int)
     try:
         from sklearn.cluster import HDBSCAN  # sklearn >= 1.3
 
-        min_size = max(2, int(0.15 * len(matrix)) or 2)
-        return HDBSCAN(min_cluster_size=min_size).fit_predict(matrix)
+        # 15% of the group, but never more than 50: a fixed share of a large fleet made a real
+        # recurring problem of a few dozen episodes too small to count as a mode.
+        min_size = max(2, min(int(0.15 * len(matrix)), 50))
+        # allow_single_cluster: without it HDBSCAN refuses to report "these are all one group"
+        # and labels the whole set noise — exactly the case of a fleet failing the same way.
+        labels = HDBSCAN(
+            min_cluster_size=min_size, min_samples=2, allow_single_cluster=True
+        ).fit_predict(matrix)
+        return _absorb_noise(matrix, labels)
     except Exception:
         from sklearn.cluster import AgglomerativeClustering
 
         n = max(1, min(len(matrix) - 1, max(2, len(matrix) // 3)))
-        if len(matrix) < 2:
-            return np.zeros(len(matrix), dtype=int)
         return AgglomerativeClustering(n_clusters=n).fit_predict(matrix)
 
 
-def _embed_episodes(episodes: list[Episode]) -> list[np.ndarray]:
-    """Choose one embedding space for the whole batch so the vectors are comparable.
+def _embedding_groups(episodes: list[Episode]) -> list[tuple[list[Episode], np.ndarray]]:
+    """Split the batch by embedding space; each group is clustered on its own.
 
-    Learned 384-dim visual embeddings are used only when learned models are enabled AND every
-    episode has a frame image (mixing 384-dim and 10-dim vectors in one matrix is meaningless);
-    otherwise the deterministic failure-signature embedding is used for all.
+    Vectors from different spaces are not comparable (384-dim visual vs 10-dim signature), so
+    they cannot share a matrix — but one image-less episode used to force the *whole org* onto
+    signatures. Now episodes with a frame image use the learned visual embedding, the rest use
+    the failure signature, and a cluster never mixes the two.
     """
-    if gateway.learned_enabled() and all(gateway.episode_has_images(ep) for ep in episodes):
-        vecs: list[np.ndarray] = []
-        for ep in episodes:
-            img = gateway.first_frame_image(ep)
-            if img is None:  # defensive: fall back to signatures for the whole batch
-                return [embed_episode(ep) for ep in episodes]
-            vecs.append(runtime.embed_image(img, ep.instruction))
-        return vecs
-    return [embed_episode(ep) for ep in episodes]
+    visual: list[tuple[Episode, np.ndarray]] = []
+    signature: list[Episode] = []
+    use_visual = gateway.learned_enabled()
+    for ep in episodes:
+        img = gateway.first_frame_image(ep) if use_visual and gateway.episode_has_images(ep) else None
+        if img is not None:
+            visual.append((ep, np.asarray(runtime.embed_image(img, ep.instruction), dtype=np.float64)))
+        else:
+            signature.append(ep)
+    spaces = []
+    if visual:
+        spaces.append(([e for e, _ in visual], np.vstack([v for _, v in visual])))
+    if signature:
+        spaces.append((signature, np.vstack([embed_episode(e) for e in signature])))
+
+    # Within each space, cluster each failure cause on its own. A mode is a recurring failure
+    # with one cause; clustering every cause together let 4 perception failures disappear as
+    # noise beside 1,300 undetermined ones (the size threshold scales with the group).
+    groups = []
+    for eps, matrix in spaces:
+        by_cause: dict[str, list[int]] = {}
+        for i, ep in enumerate(eps):
+            cause = ep.classification.surface if ep.classification else "unknown"
+            by_cause.setdefault(cause, []).append(i)
+        for idxs in by_cause.values():
+            groups.append(([eps[i] for i in idxs], matrix[idxs]))
+    return groups
 
 
 def recompute_clusters(db: Session, org: Organization) -> list[FailureCluster]:
@@ -75,33 +124,35 @@ def recompute_clusters(db: Session, org: Organization) -> list[FailureCluster]:
         db.commit()
         return []
 
-    matrix = np.vstack(_embed_episodes(episodes))
-    labels = _hdbscan_labels(matrix)
-
-    clusters: dict[int, list[int]] = {}
-    for idx, lab in enumerate(labels):
-        if lab == -1:  # noise / singleton failures are not a fleet pattern
-            continue
-        clusters.setdefault(int(lab), []).append(idx)
-
     created: list[FailureCluster] = []
-    for lab, idxs in sorted(clusters.items()):
-        members = [episodes[i] for i in idxs]
-        centroid = matrix[idxs].mean(axis=0)
-        surfaces = [m.classification.surface for m in members if m.classification]
-        dominant = Counter(surfaces).most_common(1)[0][0] if surfaces else None
-        fc = FailureCluster(
-            org_id=org.id,
-            label=f"{dominant or 'mixed'}-cluster-{lab}",
-            dominant_surface=dominant,
-            embedding=[round(float(x), 6) for x in centroid.tolist()],
-            episode_count=len(members),
-        )
-        db.add(fc)
-        db.flush()
-        for m in members:
-            db.add(ClusterEpisode(cluster_id=fc.id, episode_id=m.id))
-        created.append(fc)
+    next_label = 0
+    for group, matrix in _embedding_groups(episodes):
+        labels = _hdbscan_labels(matrix)
+        clusters: dict[int, list[int]] = {}
+        for idx, lab in enumerate(labels):
+            if lab == -1:  # noise / singleton failures are not a fleet pattern
+                continue
+            clusters.setdefault(int(lab), []).append(idx)
+
+        for _lab, idxs in sorted(clusters.items()):
+            lab = next_label
+            next_label += 1
+            members = [group[i] for i in idxs]
+            centroid = matrix[idxs].mean(axis=0)
+            surfaces = [m.classification.surface for m in members if m.classification]
+            dominant = Counter(surfaces).most_common(1)[0][0] if surfaces else None
+            fc = FailureCluster(
+                org_id=org.id,
+                label=f"{dominant or 'mixed'}-cluster-{lab}",
+                dominant_surface=dominant,
+                embedding=[round(float(x), 6) for x in centroid.tolist()],
+                episode_count=len(members),
+            )
+            db.add(fc)
+            db.flush()
+            for m in members:
+                db.add(ClusterEpisode(cluster_id=fc.id, episode_id=m.id))
+            created.append(fc)
 
     db.commit()
     created.sort(key=lambda c: c.episode_count, reverse=True)

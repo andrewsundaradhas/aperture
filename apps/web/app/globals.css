@@ -1,6 +1,263 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  /* ── Midnight broadside ────────────────────────────────────────────────────
+   * Deep plum ground, one lavender accent, ultra-condensed display type, flat surfaces.
+   * Token NAMES are kept from the previous system so every component re-themes from here;
+   * read them by role:
+   *   sage-paper = page ground   bone-white = card surface   forest-ink = primary text
+   *   slate-smoke = muted text   lichen = hairline           ash-gray = hover wash
+   *   deep-fern = accent (links) moss = filled-button fill
+   */
+  --color-deep-plum: #23002b;
+  --color-lavender: #e894ff;
+  --color-mint: #93ffe4;
+  --color-amber: #ffac47;
+  --color-espresso: #291900;
+  --color-ink-teal: #002629;
+
+  --color-sage-paper: #23002b;
+  --color-bone-white: #2e0838;
+  --color-forest-ink: #ffffff;
+  --color-slate-smoke: #c3b0cb;
+  --color-lichen: #4a2a55;
+  --color-ash-gray: #3a1245;
+  --color-deep-fern: #e894ff;
+  --color-moss: #e894ff;
+
+  --color-perception: #e894ff;
+  --color-grounding: #93ffe4;
+  --color-motor: #ffac47;
+  --color-alarm: #ff8f7d;
+  --color-caution: #ffac47;
+
+  --font-denim: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Anton", "Oswald", Impact, ui-sans-serif, sans-serif;
+  /* The old mono voices now speak Inter: one quiet UI face, per the reference. */
+  --font-muoto: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-cinetype: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --text-caption: 12px;
+  --text-caption--line-height: 1.43;
+  --text-caption--letter-spacing: -0.01em;
+  --text-body: 14px;
+  --text-body--line-height: 1.43;
+  --text-body--letter-spacing: -0.011em;
+  --text-body-sm: 14px;
+  --text-body-sm--line-height: 1.43;
+  --text-body-sm--letter-spacing: -0.011em;
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 1.4;
+  --text-body-lg--letter-spacing: -0.015em;
+  --text-subheading: 20px;
+  --text-subheading--line-height: 1.2;
+  --text-subheading--letter-spacing: 0;
+  /* Display sizes are set in the condensed face (see .font-display / headings below). */
+  --text-heading-sm: 30px;
+  --text-heading-sm--line-height: 0.95;
+  --text-heading-sm--letter-spacing: 0.008em;
+  --text-heading: 64px;
+  --text-heading--line-height: 0.88;
+  --text-heading--letter-spacing: 0.006em;
+  --text-display: 120px;
+  --text-display--line-height: 0.82;
+  --text-display--letter-spacing: 0.005em;
+
+  --radius-tag: 6px;
+  --radius-card: 14px;
+  --radius-btn: 9999px;
+  --radius-panel: 24px;
+  --radius-hero: 24px;
+
+  /* Flat system: hairline rings only, no elevation. */
+  --shadow-hairline: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  --shadow-hairline-ink: inset 0 0 0 1px rgba(232, 148, 255, 0.55);
+  --shadow-underline: inset 0 -1px 0 0 rgba(255, 255, 255, 0.1);
+  --shadow-lift: none;
+  --shadow-panel: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+
+  --spacing-section: 64px;
+
+  --container-page: 1200px;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
+
+@utility cinetype {
+  /* ── Type voices ───────────────────────────────────────────────────────────
+   * cinetype is ALL-CAPS only. Its +0.30em tracking is the system's signature and
+   * becomes illegible in sentence case or past two or three words.
+   */
+  @apply font-cinetype uppercase font-medium;
+  letter-spacing: 0.12em;
+}
+
+@utility muoto {
+  /* muoto — labels, captions, axis ticks. Tight tracking makes it instrument-like. */
+  @apply font-muoto;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility gridded {
+  /* ── Canvas texture ────────────────────────────────────────────────────────
+   * Ambient dotted gridlines. Encouraged by the system even where no chart is drawn —
+   * it is what makes the page read as graph paper rather than a blank field.
+   */
+  background-image: radial-gradient(var(--hairline) 0.5px, transparent 0.5px);
+  background-size: 16px 16px;
+  background-position: -1px -1px;
+}
+
+@utility gridded-fine {
+  background-image: radial-gradient(var(--hairline) 0.5px, transparent 0.5px);
+  background-size: 8px 8px;
+}
+
+@utility card {
+  /* ── Surfaces ──────────────────────────────────────────────────────────────
+   * Bone white on the sage canvas, lifted only by a 0.5px inset ring.
+   */
+  @apply rounded-card bg-bone-white shadow-hairline;
+}
+
+@utility font-display {
+  /* The condensed display voice: always uppercase, tight leading. */
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+}
+
+@utility card-inset {
+  @apply rounded-card bg-ash-gray shadow-hairline;
+}
+
+
+
+@utility tag {
+  /* ── Specimen tag ──────────────────────────────────────────────────────────
+   * The stamped label: 4px radius, hairline border, cinetype at wide tracking.
+   */
+  @apply inline-flex items-center rounded-tag border border-lichen bg-transparent px-2 py-0.5 text-[11px] font-semibold leading-normal text-forest-ink;
+  @apply font-cinetype uppercase;
+  letter-spacing: 0.08em;
+}
+
+@utility tag-ink {
+  @apply border-forest-ink;
+}
+
+@utility pill {
+  /* Soft data pill — used where a tag would be too shouty (row cells, inline counts). */
+  @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-caption font-medium;
+}
+
+
+@utility btn-filled {
+  /* ── Buttons ───────────────────────────────────────────────────────────────
+   * Exactly one filled action per screen. Everything else is outlined or ghost.
+   */
+  @apply inline-flex items-center justify-center gap-2 rounded-btn bg-lavender px-5 py-2.5 text-body font-medium text-deep-plum transition;
+  @apply hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-btn border-0 bg-transparent px-5 py-2.5 text-body font-medium text-forest-ink shadow-hairline-ink transition;
+  @apply hover:bg-lavender/10 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+@utility btn-ghost {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-btn border-0 bg-transparent px-3 py-1.5 text-body text-slate-smoke transition;
+  @apply hover:text-forest-ink disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+@utility link {
+  /* Bracketed inline link — the system's annotation voice. */
+  @apply text-deep-fern transition hover:underline;
+}
+
+@utility field {
+  /* ── Form fields ───────────────────────────────────────────────────────────*/
+  @apply w-full rounded-full border-0 bg-ash-gray px-4 py-2 text-body text-forest-ink shadow-hairline transition;
+  @apply placeholder:text-slate-smoke focus:outline-hidden;
+  &:focus {
+    @apply shadow-hairline-ink;
+  }
+
+  &select {
+    @apply cursor-pointer pr-8;
+  }
+}
+
+@utility table-scroll {
+  /* ── Tables ────────────────────────────────────────────────────────────────*/
+  @apply w-full overflow-x-auto;
+}
+
+/* Data tables. Plain selectors in a components layer, not @utility: a utility must be a single
+   class, and `table.data` is an element+class selector (the automatic v3->v4 migration turned it
+   into invalid `:is(.data)table` rules that the CSS optimiser dropped). */
+@layer components {
+  table.data {
+    @apply w-full border-collapse text-body;
+  }
+  table.data th {
+    @apply whitespace-nowrap px-3 py-3 text-left text-[11px] font-semibold text-slate-smoke;
+    @apply font-cinetype uppercase;
+    letter-spacing: 0.1em;
+    box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.14);
+  }
+  table.data td {
+    @apply px-3 py-3;
+    box-shadow: inset 0 -1px 0 0 rgba(255, 255, 255, 0.07);
+  }
+  table.data tbody tr {
+    @apply transition-colors;
+  }
+  table.data tbody tr:hover td {
+    @apply bg-ash-gray;
+  }
+  table.data tr.row-link:hover .row-link-label {
+    @apply text-deep-fern underline;
+  }
+  table.data tbody tr:last-child td {
+    box-shadow: none;
+  }
+}
+
+@utility skeleton {
+  /* ── Loading skeletons ─────────────────────────────────────────────────────*/
+  @apply relative overflow-hidden rounded-tag bg-lichen/50;
+  &::after {
+    content: '';
+    @apply absolute inset-0;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    animation: shimmer 1.4s infinite;
+  }
+}
+
 
 /*
  * Component classes live in @layer components so Tailwind sorts them BEFORE the utility
@@ -12,206 +269,40 @@
 
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
 
-    --canvas: #e0e0e0;
-    --ink: #09352e;
-    --hairline: #cad3d2;
+    --canvas: #23002b;
+    --ink: #ffffff;
+    --hairline: rgba(255, 255, 255, 0.12);
+  }
+
+  /* Headings speak in the condensed display face. */
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    text-transform: uppercase;
   }
 
   body {
     @apply bg-sage-paper text-forest-ink font-denim antialiased;
     font-size: 14px;
-    letter-spacing: 0.012em;
-    font-feature-settings: "liga" 0;
+    letter-spacing: -0.011em;
   }
 
-  /* The sage canvas is structural — never let a white page background show through. */
+  /* The plum ground is structural — never let a white page background show through. */
   html {
     background-color: var(--canvas);
   }
 
   :focus-visible {
-    @apply outline-none ring-2 ring-deep-fern/50 ring-offset-2 ring-offset-sage-paper rounded-tag;
+    @apply outline-hidden ring-2 ring-lavender/70 ring-offset-2 ring-offset-sage-paper rounded-tag;
   }
 }
 
-@layer components {
-  /* ── Type voices ───────────────────────────────────────────────────────────
-   * cinetype is ALL-CAPS only. Its +0.30em tracking is the system's signature and
-   * becomes illegible in sentence case or past two or three words.
-   */
-  .cinetype {
-    @apply font-cinetype uppercase;
-    letter-spacing: 0.30em;
-    font-feature-settings: "liga" 0;
-  }
-
-  /* muoto — labels, captions, axis ticks. Tight tracking makes it instrument-like. */
-  .muoto {
-    @apply font-muoto;
-    letter-spacing: -0.01em;
-    font-feature-settings: "liga" 0;
-  }
-
-  /* ── Canvas texture ────────────────────────────────────────────────────────
-   * Ambient dotted gridlines. Encouraged by the system even where no chart is drawn —
-   * it is what makes the page read as graph paper rather than a blank field.
-   */
-  .gridded {
-    background-image: radial-gradient(var(--hairline) 0.5px, transparent 0.5px);
-    background-size: 16px 16px;
-    background-position: -1px -1px;
-  }
-
-  .gridded-fine {
-    background-image: radial-gradient(var(--hairline) 0.5px, transparent 0.5px);
-    background-size: 8px 8px;
-  }
-
-  /* ── Surfaces ──────────────────────────────────────────────────────────────
-   * Bone white on the sage canvas, lifted only by a 0.5px inset ring.
-   */
-  .card {
-    @apply rounded-card bg-bone-white shadow-hairline;
-  }
-
-  .card-inset {
-    @apply rounded-card bg-ash-gray shadow-hairline;
-  }
-
-  /* A card that is itself a link. The hover lift stays under 6% opacity — anything
-     heavier breaks the flat herbarium feel. */
-  .card-link {
-    @apply card transition duration-150;
-  }
-  .card-link:hover {
-    @apply shadow-lift;
-  }
-
-  /* The rare dark block, for terminal-feeling content. */
-  .card-dark {
-    @apply rounded-card bg-charcoal-bark text-bone-white;
-  }
-
-  /* ── Specimen tag ──────────────────────────────────────────────────────────
-   * The stamped label: 4px radius, hairline border, cinetype at wide tracking.
-   */
-  .tag {
-    @apply inline-flex items-center rounded-tag border border-lichen bg-transparent px-2 py-0.5 text-[11px] leading-[1.5] text-forest-ink;
-    @apply font-cinetype uppercase;
-    letter-spacing: 0.22em;
-  }
-
-  .tag-ink {
-    @apply border-forest-ink;
-  }
-
-  /* Soft data pill — used where a tag would be too shouty (row cells, inline counts). */
-  .pill {
-    @apply inline-flex items-center gap-1 rounded-tag px-2 py-0.5 text-caption;
-    @apply font-muoto;
-    letter-spacing: -0.01em;
-  }
-
-  /* Floating round chip, pinned over a plot. */
-  .chip {
-    @apply inline-flex items-center gap-1.5 rounded-full bg-forest-ink px-3 py-1.5 text-bone-white;
-    @apply font-muoto text-[12px] font-medium;
-    letter-spacing: -0.01em;
-  }
-
-  /* ── Buttons ───────────────────────────────────────────────────────────────
-   * Exactly one filled action per screen. Everything else is outlined or ghost.
-   */
-  .btn-filled {
-    @apply inline-flex items-center justify-center gap-2 rounded-btn bg-moss px-5 py-2.5 text-body font-medium text-forest-ink transition;
-    @apply hover:brightness-[0.97] disabled:cursor-not-allowed disabled:opacity-40;
-  }
-
-  .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-btn border-0 bg-transparent px-5 py-2.5 text-body font-medium text-forest-ink shadow-hairline-ink transition;
-    @apply hover:bg-forest-ink/[0.04] disabled:cursor-not-allowed disabled:opacity-40;
-  }
-
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-btn border-0 bg-transparent px-3 py-1.5 text-body text-slate-smoke transition;
-    @apply hover:text-forest-ink disabled:cursor-not-allowed disabled:opacity-40;
-  }
-
-  /* Bracketed inline link — the system's annotation voice. */
-  .link {
-    @apply text-deep-fern transition hover:underline;
-  }
-
-  /* ── Form fields ───────────────────────────────────────────────────────────*/
-  .field {
-    @apply w-full rounded-tag border-0 bg-bone-white px-3 py-2 text-body text-forest-ink shadow-hairline transition;
-    @apply placeholder:text-slate-smoke focus:outline-none;
-  }
-  .field:focus {
-    @apply shadow-hairline-ink;
-  }
-
-  select.field {
-    @apply cursor-pointer pr-8;
-  }
-
-  /* ── Tables ────────────────────────────────────────────────────────────────*/
-  .table-scroll {
-    @apply w-full overflow-x-auto;
-  }
-
-  table.data {
-    @apply w-full border-collapse text-body;
-  }
-  table.data th {
-    @apply whitespace-nowrap px-3 py-2.5 text-left text-[11px] text-slate-smoke;
-    @apply font-cinetype uppercase;
-    letter-spacing: 0.18em;
-    box-shadow: rgb(202, 211, 210) 0px -1px 0px 0px inset;
-  }
-  table.data td {
-    @apply px-3 py-3;
-    box-shadow: rgb(224, 229, 229) 0px -1px 0px 0px inset;
-  }
-  table.data tbody tr {
-    @apply transition-colors;
-  }
-  table.data tbody tr:hover td {
-    @apply bg-ash-gray/60;
-  }
-  table.data tr.row-link:hover .row-link-label {
-    @apply text-deep-fern underline;
-  }
-  table.data tbody tr:last-child td {
-    box-shadow: none;
-  }
-
-  /* ── Loading skeletons ─────────────────────────────────────────────────────*/
-  .skeleton {
-    @apply relative overflow-hidden rounded-tag bg-lichen/50;
-  }
-  .skeleton::after {
-    content: "";
-    @apply absolute inset-0;
-    background: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0) 0%,
-      rgba(255, 255, 255, 0.7) 50%,
-      rgba(255, 255, 255, 0) 100%
-    );
-    animation: shimmer 1.4s infinite;
-  }
-
-  /* ── Version stamp ─────────────────────────────────────────────────────────
-   * Rotated side-margin mark, like a document revision note.
-   */
-  .version-stamp {
-    @apply font-muoto text-[11px] text-slate-smoke;
-    writing-mode: vertical-rl;
-    letter-spacing: 0.18em;
-  }
+/* Intro already seen this session (set by the inline head script): never paint it. */
+html[data-intro-seen] .intro-overlay {
+  display: none;
 }
 
 @keyframes shimmer {
@@ -226,15 +317,15 @@
 /* Range input tuned to the system (the default accent is far too saturated here). */
 input[type="range"] {
   @apply h-1 w-full cursor-pointer appearance-none rounded-full bg-lichen;
-  accent-color: #0b6b45;
+  accent-color: #e894ff;
 }
 input[type="range"]::-webkit-slider-thumb {
   @apply h-3.5 w-3.5 appearance-none rounded-full bg-bone-white;
-  box-shadow: 0 0 0 1px #09352e;
+  box-shadow: 0 0 0 1px #e894ff;
 }
 input[type="range"]::-moz-range-thumb {
   @apply h-3.5 w-3.5 rounded-full border-0 bg-bone-white;
-  box-shadow: 0 0 0 1px #09352e;
+  box-shadow: 0 0 0 1px #e894ff;
 }
 
 @media (prefers-reduced-motion: reduce) {

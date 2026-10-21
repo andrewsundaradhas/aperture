@@ -62,11 +62,31 @@ the `lerobot` package — it reads the v3 layout (parquet + mp4) with `pyarrow` 
 **RLDS key layout.** TFDS flattens an episode's `steps` sequence into repeated values under
 slashed keys. Keys are matched by *suffix*, so `steps/observation/state` and
 `observation/state` both resolve. `KEY_HINTS` in `rlds_tfrecord.py` lists every recognised
-name. A producer using different names needs a mapping added there, not a new reader.
+name. Also handled: actions stored as named parts (`action/world_vector`,
+`action/gripper_closedness_action`, … — concatenated per step), cameras under other names
+(`hand_image`, `image_wrist`; depth images are skipped), and raw TFDS shard names
+(`…-train.tfrecord-00000-of-00128`). Optional per-step signal channels `action_confidence`,
+`contact_force` and `subgoal` feed the failure classifier.
 
-**Outcome.** LeRobot rewards are usually shaped and continuous rather than a success flag, so
-success is inferred: final reward `>= 1.0`. Same threshold as the RLDS parser, so both formats
-agree. Override per dataset if yours encodes success differently.
+**Cameras (LeRobot).** Multi-camera datasets use their first camera (`observation.image` if
+present), so frames stay aligned one-to-one with the parquet rows. Videos are streamed and
+downscaled, not decoded into memory, so real-robot datasets of hundreds of MB ingest in flat
+memory.
+
+**Outcome — did each episode succeed?** Most trustworthy signal first:
+
+1. An explicit success flag — LeRobot `next.success` (an episode succeeded if it ever reached
+   success); RLDS `success` / `is_success` / `episode_metadata/success`.
+2. Reward — RLDS / Open X-Embodiment rewards are sparse 0/1 with 1 marking the success step,
+   which is not always the final step, so any step reaching 1 counts. LeRobot rewards are
+   usually shaped and continuous, so the final reward is compared against `1.0`.
+3. Neither — the data records no outcome (typical of teleoperated demonstrations, e.g. real
+   SO-100/SO-101 or ALOHA recordings), so episodes are recorded as successes.
+
+Logs that do not record outcomes — a batch the operator knows to be failed runs, say — can be
+labelled at upload: **Results in these files** on the Upload page, or `outcome=fail|success` on
+`POST /v1/episodes/upload` (form field) and `POST /v1/uploads/ingest` (JSON). The before/after
+check refuses files with no recorded outcome rather than measuring a success rate from defaults.
 
 ### Legacy JSON is still supported
 
@@ -76,9 +96,21 @@ them keep working. New integrations should send the real format.
 
 ### Frame retention
 
-Every frame of every episode is stored by default. `APERTURE_MAX_FRAMES_PER_EPISODE` caps it
-(`0` = unlimited, the default); each truncation is logged at WARNING. A silently shortened
-trajectory would teach a fine-tune that the task ends early, so truncation is never quiet.
+Every frame's state and action is stored. `APERTURE_MAX_FRAMES_PER_EPISODE` caps frames per
+episode (`0` = unlimited, the default); each truncation is logged at WARNING — a silently
+shortened trajectory would teach a fine-tune that the task ends early.
+
+Frame **images** are stored for up to `APERTURE_MAX_IMAGES_PER_EPISODE` evenly spaced frames per
+episode (default 32, first and last included; `0` = every frame), downscaled so the longest side
+is 256 px. Classification reads the first frame and attention maps up to 8, so this keeps uploads
+light without losing anything the product uses; in exports, frames without a stored image have
+`image_url: null`.
+
+### Size limits
+
+Direct uploads (`POST /v1/episodes/upload`) are capped at `APERTURE_MAX_UPLOAD_BYTES` per file
+(50 MB). Larger datasets go through the presigned path, capped at `APERTURE_MAX_INGEST_BYTES`
+(5 GB); on the local-storage backend the bytes are streamed to disk, never held in memory.
 
 ## Export
 

@@ -22,14 +22,28 @@ Open http://localhost:3000 — you should see classified episodes and a failure 
 
 ## 2. Get your API key
 
-For local development, set a generated API key in `APERTURE_API_KEYS`. For your own org:
+For local development, set a generated API key in `APERTURE_API_KEYS`. For your own org, an
+operator provisions it — public signup is **closed in production** unless the server sets
+`APERTURE_SIGNUP_TOKEN`:
 
 ```bash
+# operator, on the API host (or `docker compose exec api ...`)
+python -m aperture.admin create-org --slug your-co --name "Your Co"
+# → api key (shown once): ak_...
+
+# or, where self-serve signup is enabled with a token (open without one in local dev)
 curl -X POST http://localhost:8000/v1/onboarding/signup \
-  -H "Content-Type: application/json" \
+  -H "Content-Type: application/json" -H "X-Signup-Token: $SIGNUP_TOKEN" \
   -d '{"slug":"your-co","name":"Your Co"}'
 # → returns {"api_key": "ak_...", ...}   save this
 ```
+
+Slugs are lowercase letters, digits and hyphens (3–48 chars). Every org starts on the `pilot`
+plan; the plan is an operator setting, not part of the request.
+
+The same key signs you in to the dashboard (when it runs in per-org mode — see DEPLOY.md), where
+**Settings** lists, creates and revokes keys and registers robots, and **Upload** takes dataset
+archives straight to storage. Failed episodes are classified automatically after upload.
 
 Only a hash of the key is stored, so it is shown exactly once. Manage keys with
 `GET /v1/onboarding/keys` (prefixes only, never the secret), `POST /v1/onboarding/keys` to mint
@@ -90,9 +104,11 @@ See `docs/LOCAL_VS_PRODUCTION.md` for the local ↔ production mapping.
 - **Render (backend)** — New → Blueprint pointed at this repo (`infra/render.yaml` is ready); fill the
   `sync: false` env vars in the dashboard; verify `GET /health` returns 200.
 - **Vercel (frontend)** — import the repo with root directory `apps/web` (`apps/web/vercel.json` is ready);
-  set `APERTURE_API_BASE_URL` (your Render URL) and `APERTURE_API_KEY`. Both are **server-side
-  only** — never prefix an API key with `NEXT_PUBLIC_`, which inlines it into the browser bundle
-  for every visitor to read.
+  set `APERTURE_API_BASE_URL` (your Render URL) and `APERTURE_SESSION_SECRET`; each customer then
+  signs in with their own org API key. (Set `APERTURE_API_KEY` + `APERTURE_DASHBOARD_PASSWORD`
+  instead for a single-org, shared-password dashboard.) All are **server-side only** — never
+  prefix an API key with `NEXT_PUBLIC_`, which inlines it into the browser bundle for every
+  visitor to read.
 - **Sentry (optional)** — set `APERTURE_SENTRY_DSN` (API) and `NEXT_PUBLIC_SENTRY_DSN`/`SENTRY_DSN` (web).
   Both stay inert until set.
 - **Real attention rollout (GPU)** — open `ml/notebooks/attention_rollout.ipynb` on Colab/Kaggle,

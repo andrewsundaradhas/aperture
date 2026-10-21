@@ -152,3 +152,59 @@ def replanning_frequency(subgoals: list[str | None]) -> HeuristicVerdict:
         signal_present=True,
         evidence={"blocks": len(blocks), "reissues": reissues},
     )
+
+
+# --- Action-trace anomaly (motor, from the logged commands) --------------------------------
+#
+# Real datasets (LeRobot, Open X-Embodiment RLDS) almost never log contact force, policy
+# confidence or sub-goal tokens — but every one of them logs the commanded action, because it is
+# the training target. This reads that channel, with the same definition the failure head's
+# motor class is built from in `ml/training/failure_surfaces.py`: command jerk.
+#
+# Saturation is deliberately *not* used per episode. Measured on lerobot/xarm_lift_medium, the
+# controller pins commands at +/-1 for a median 68% of frames in successful and failed episodes
+# alike, so an absolute saturation rule fired on 100% of both — a property of the controller,
+# not of a failure. Jerk at Z=8 fired on neither (99th percentile 3.7 success / 4.1 fail):
+# on that dataset the failures are not actuation glitches, and the classifier says "unknown"
+# rather than inventing a motor fault.
+ACTION_MIN_FRAMES = 6
+ACTION_JERK_Z = 8.0           # a jerk this many robust-sigmas above the episode's typical step
+_DISCRETE_MAX_LEVELS = 3      # gripper open/close channels: a toggle is not a jerk
+
+
+def action_trace_anomaly(actions: list[list[float] | None]) -> HeuristicVerdict:
+    """Motor. Flag abrupt command jumps in the commanded action trace.
+
+    Units differ per embodiment and per joint, so each continuous dimension is scaled by its own
+    spread within the episode before jerk is measured; discrete dimensions (a gripper toggling
+    between two values) are left out of the jerk term, since one deliberate open/close would
+    otherwise read as the largest jerk in every successful grasp.
+    """
+    import numpy as np
+
+    rows = [a for a in actions if a]
+    if len(rows) < ACTION_MIN_FRAMES or len({len(a) for a in rows}) != 1:
+        return HeuristicVerdict("motor", 0.0, signal_present=False)
+    arr = np.asarray(rows, dtype=np.float64)
+    if not np.isfinite(arr).all():
+        arr = np.nan_to_num(arr)
+
+    continuous = [j for j in range(arr.shape[1]) if len(np.unique(arr[:, j])) > _DISCRETE_MAX_LEVELS]
+    jerk_score, max_z = 0.0, 0.0
+    if continuous:
+        c = arr[:, continuous]
+        spread = c.std(axis=0)
+        spread[spread < 1e-9] = 1.0
+        steps = np.linalg.norm(np.diff(c / spread, axis=0), axis=1)
+        median = float(np.median(steps))
+        mad = float(np.median(np.abs(steps - median))) or 1e-6
+        max_z = float(((steps - median) / (1.4826 * mad)).max())
+        if max_z > ACTION_JERK_Z:
+            jerk_score = _clamp((max_z - ACTION_JERK_Z) / ACTION_JERK_Z)
+
+    return HeuristicVerdict(
+        "motor",
+        jerk_score,
+        signal_present=bool(continuous),
+        evidence={"max_jerk_z": round(max_z, 2), "continuous_dims": len(continuous)},
+    )

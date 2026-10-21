@@ -18,14 +18,34 @@ def learned_enabled() -> bool:
     return bool(get_settings().use_learned_models) and runtime.is_available()
 
 
+def _decodable(data: bytes) -> bool:
+    """True if the bytes are an image the model's preprocessing can open.
+
+    Uploads are untrusted: a frame whose image field holds garbage used to reach PIL inside the
+    model call and turn `classify` into a 500. A bad image now means "no image", and the episode
+    takes the heuristic path like any other image-less episode.
+    """
+    import io
+
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as img:
+            img.verify()
+        return True
+    except Exception:
+        return False
+
+
 def first_frame_image(episode: Episode) -> bytes | None:
-    """Bytes of the earliest frame that carries an image, or None. Frames are ordered by t."""
+    """Bytes of the earliest frame with a readable image, or None. Frames are ordered by t."""
     for f in episode.frames:
         if f.image_uri:
             try:
-                return read_uri(f.image_uri)
+                data = read_uri(f.image_uri)
             except Exception:
                 return None
+            return data if _decodable(data) else None
     return None
 
 
@@ -36,9 +56,11 @@ def episode_frame_images(episode: Episode, max_frames: int = 8) -> list[tuple[in
         if not f.image_uri:
             continue
         try:
-            out.append((f.t, read_uri(f.image_uri)))
+            data = read_uri(f.image_uri)
         except Exception:
             continue
+        if _decodable(data):
+            out.append((f.t, data))
         if len(out) >= max_frames:
             break
     return out

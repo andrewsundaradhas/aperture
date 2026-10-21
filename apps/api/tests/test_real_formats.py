@@ -11,7 +11,6 @@ import json
 import tarfile
 import zipfile
 from io import BytesIO
-from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -204,7 +203,11 @@ def test_verify_accepts_rlds_tfrecord_batch(client, auth):
         client.post(f"/v1/episodes/{r.json()['episode_ids'][0]}/classify", headers=auth)
 
     client.post("/v1/clusters/recompute?wait=true", headers=auth)
-    cid = client.get("/v1/clusters", headers=auth).json()[0]["id"]
+    # The mode holding this test's episodes — other tests share the database and add modes.
+    cid = next(
+        c["id"] for c in client.get("/v1/clusters", headers=auth).json()
+        if any(e["instruction"] == instr for e in client.get(f"/v1/clusters/{c['id']}", headers=auth).json()["episodes"])
+    )
 
     r = client.post(
         f"/v1/clusters/{cid}/verify",
@@ -235,3 +238,21 @@ def test_verify_still_rejects_a_malformed_tfrecord(client, auth):
         headers=auth,
     )
     assert r.status_code == 422, r.text
+
+
+def test_tfds_shard_names_are_recognised_and_name_the_robot():
+    """Open X-Embodiment shards are named `<ds>-train.tfrecord-00000-of-00001`; the extension is
+    not last. They must still be read as RLDS, and an unnamed robot takes the dataset's name."""
+    from aperture.ingestion.normalize import dataset_name, is_tfrecord_name
+
+    assert is_tfrecord_name("nyu_rot-train.tfrecord-00000-of-00001")
+    assert is_tfrecord_name("shard.TFRecord")
+    assert not is_tfrecord_name("notes.tfrecord.txt")
+    assert dataset_name("nyu-rot-real-robot.tfrecord") == "nyu-rot-real-robot"
+    assert dataset_name("jaco_play-train.tfrecord-00108-of-00128") == "jaco_play"
+    assert (
+        dataset_name("nyu_rot_dataset_converted_externally_to_rlds-train.tfrecord-00000-of-00001")
+        == "nyu_rot_dataset"
+    )
+    assert dataset_name("xarm-lift-sample.zip") == "xarm-lift-sample"
+    assert dataset_name("fleet.tar.gz") == "fleet"

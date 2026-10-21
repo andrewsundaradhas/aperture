@@ -54,6 +54,11 @@ def bind_org_to_transaction(db: Session, org_id: str) -> None:
     on a pooled connection: the next request to borrow it cannot inherit this tenant's identity.
     No-op on SQLite, which has neither RLS nor `SET LOCAL`.
     """
+    # Remembered on the session so `core.db` re-applies it at the start of every later
+    # transaction. `is_local` scopes the setting to *this* transaction, so without that a
+    # handler that commits and then reads (an ORM refresh, a second write) runs as no tenant
+    # and RLS hides its own rows.
+    db.info["org_id"] = org_id
     if _is_postgres(db):
         db.execute(text("select set_config('aperture.org_id', :org_id, true)"), {"org_id": org_id})
 

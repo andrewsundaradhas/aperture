@@ -38,6 +38,7 @@ KEY_HINTS = {
     "is_terminal": ("is_terminal", "is_last"),
     "confidence": ("action_confidence", "confidence"),
     "force": ("contact_force", "force"),
+    "subgoal": ("subgoal", "sub_goal", "current_subgoal"),
 }
 
 
@@ -190,12 +191,50 @@ def _chunk(flat: list, n_steps: int) -> list[list]:
     return [flat[i * width : (i + 1) * width] for i in range(n_steps)]
 
 
+def _find_image(features: dict[str, list]):
+    """The main camera: the recognised names first, then any `observation/...image` feature
+    (`hand_image`, `image_wrist`, ...). Depth images are skipped."""
+    found = _find(features, "image")
+    if found:
+        return found
+    for key in sorted(features):
+        k = key.replace(".", "/")
+        if "/observation/" in "/" + k and k.split("/")[-1].endswith("image") and "depth" not in k:
+            return features[key]
+    return None
+
+
+def _multipart_actions(features: dict[str, list], n_steps: int) -> list[list[float]]:
+    """Actions stored as named parts (`steps/action/world_vector`, `.../gripper_closedness_action`,
+    ...), as several Open X-Embodiment datasets do, concatenated per step in key order."""
+    parts = sorted(
+        k for k in features
+        if "/action/" in "/" + k.replace(".", "/") and all(isinstance(v, (int, float)) for v in features[k])
+    )
+    per_part = [_chunk(features[k], n_steps) for k in parts]
+    per_part = [p for p in per_part if p]
+    if not per_part:
+        return []
+    return [[v for p in per_part for v in p[t]] for t in range(n_steps)]
+
+
+def _explicit_success(features: dict[str, list]) -> bool | None:
+    """An explicit success flag (`success`, `is_success`, `episode_metadata/success`), if any."""
+    for key, value in features.items():
+        tail = key.replace(".", "/").split("/")[-1]
+        if tail in ("success", "is_success", "task_success") and value:
+            return any(bool(v) for v in value)
+    return None
+
+
 def example_to_episode(
     features: dict[str, list],
     *,
     embodiment_type: str = "unknown",
     policy_name: str = "unknown",
     max_frames: int | None = None,
+    images_per_episode: int | None = 32,
+    default_outcome: str = "success",
 ):
     """One parsed `Example` -> a `NormalizedEpisode`, or None if it carries no steps."""
     import base64
@@ -203,11 +242,12 @@ def example_to_episode(
 
     from aperture.ingestion.schemas import NormalizedEpisode, NormalizedFrame
 
-    images = _find(features, "image") or []
+    images = _find_image(features) or []
     rewards = _find(features, "reward") or []
     instructions = _find(features, "instruction") or []
     confidences = _find(features, "confidence") or []
     forces = _find(features, "force") or []
+    subgoals = _find(features, "subgoal") or []
     actions_flat = _find(features, "action") or []
     states_flat = _find(features, "state") or []
 
@@ -224,13 +264,20 @@ def example_to_episode(
         )
         n_steps = max_frames
 
-    actions = _chunk(actions_flat, len(images) or n_steps)
+    actions = _chunk(actions_flat, len(images) or n_steps) or _multipart_actions(features, len(images) or n_steps)
     states = _chunk(states_flat, len(images) or n_steps)
 
     instruction = None
     if instructions:
         first = instructions[0]
         instruction = first.decode("utf-8", "replace") if isinstance(first, bytes) else str(first)
+
+    # Keep images for an evenly spaced subset of steps (first and last included); every step's
+    # action and state are kept regardless. See lerobot_v3.DEFAULT_IMAGES_PER_EPISODE.
+    if images_per_episode and n_steps > images_per_episode:
+        keep_image = {round(i * (n_steps - 1) / (images_per_episode - 1)) for i in range(images_per_episode)}
+    else:
+        keep_image = set(range(n_steps))
 
     frames = [
         NormalizedFrame(
@@ -239,17 +286,30 @@ def example_to_episode(
             state=[float(v) for v in states[t]] if t < len(states) else None,
             action_confidence=float(confidences[t]) if t < len(confidences) else None,
             contact_force=float(forces[t]) if t < len(forces) else None,
+            subgoal=(
+                (subgoals[t].decode("utf-8", "replace") if isinstance(subgoals[t], bytes) else str(subgoals[t])) or None
+                if t < len(subgoals) else None
+            ),
             image_b64=(
                 base64.b64encode(images[t]).decode()
-                if t < len(images) and isinstance(images[t], bytes)
+                if t < len(images) and isinstance(images[t], bytes) and t in keep_image
                 else None
             ),
         )
         for t in range(n_steps)
     ]
 
-    final_reward = float(rewards[-1]) if rewards else None
-    outcome = "success" if final_reward is not None and final_reward >= 1.0 else "fail"
+    # Outcome, most trustworthy signal first. RLDS / Open X-Embodiment rewards are sparse 0/1 with
+    # 1 marking the success step — which is not always the final step (utokyo_xarm_bimanual puts
+    # it one step early), so any step reaching 1 counts. No flag and no reward at all: the
+    # episode carries no outcome signal, so `default_outcome` (uploaders can override per batch).
+    flag = _explicit_success(features)
+    if flag is not None:
+        outcome, source = ("success" if flag else "fail"), "flag"
+    elif rewards:
+        outcome, source = ("success" if max(float(r) for r in rewards) >= 1.0 else "fail"), "reward"
+    else:
+        outcome, source = default_outcome, "none"
 
     return NormalizedEpisode(
         source_format="rlds",
@@ -257,6 +317,7 @@ def example_to_episode(
         policy_name=policy_name,
         instruction=instruction,
         outcome=outcome,
+        outcome_source=source,
         frames=frames,
         raw_blob=None,
         raw_blob_name=None,

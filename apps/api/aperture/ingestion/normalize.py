@@ -23,6 +23,8 @@ contact_force, subgoal) plus the `action`/`state` vectors that make a dataset ex
 
 from __future__ import annotations
 
+import re
+
 import json
 from datetime import datetime, timezone
 
@@ -228,7 +230,59 @@ def normalize(raw: bytes, filename: str) -> NormalizedEpisode:
     )
 
 
+# TFDS writes shards as `<name>.tfrecord-00000-of-00128` — the extension is not last. Real Open
+# X-Embodiment downloads are named exactly that way, so matching only `*.tfrecord` turned away
+# the very files the RLDS reader exists for.
+_TFRECORD_NAME = re.compile(r"\.tfrecords?(-\d+-of-\d+)?$", re.IGNORECASE)
+_ARCHIVE_SUFFIX = re.compile(r"\.(zip|tar|tar\.gz|tgz)$", re.IGNORECASE)
+
+
+def is_tfrecord_name(name: str) -> bool:
+    return bool(_TFRECORD_NAME.search(name))
+
+
+def dataset_name(filename: str) -> str:
+    """A readable name for a dataset upload: its filename without extension or shard suffix."""
+    base = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    base = _ARCHIVE_SUFFIX.sub("", _TFRECORD_NAME.sub("", base))
+    # TFDS / Open X-Embodiment naming noise: `<ds>_converted_externally_to_rlds-train`.
+    base = re.sub(r"[-_](train|val|validation|test)$", "", base, flags=re.IGNORECASE)
+    base = re.sub(r"_converted_externally_to_rlds$", "", base, flags=re.IGNORECASE)
+    return base.strip() or "unknown"
+
+
+def _name_unknown_robots(episodes: list[NormalizedEpisode], filename: str) -> list[NormalizedEpisode]:
+    """Many public datasets do not record a robot type. Rather than file every such episode under
+    one robot called "unknown" — which merges unrelated datasets in the fleet view — name the robot
+    after the dataset it came from."""
+    name = dataset_name(filename)
+    for e in episodes:
+        if not e.embodiment_type or e.embodiment_type == "unknown":
+            e.embodiment_type = name
+    return episodes
+
+
+OUTCOME_CHOICES = ("auto", "success", "fail")
+
+
 def normalize_many(raw: bytes, filename: str, **kwargs) -> list[NormalizedEpisode]:
+    """Every episode in an upload, with an optional per-upload `outcome` override.
+
+    `outcome="success"|"fail"` labels every episode in the upload — for logs that do not record
+    whether each run succeeded, e.g. a batch the operator knows to be failed runs. "auto" (the
+    default) uses whatever the data records.
+    """
+    outcome = kwargs.pop("outcome", None) or "auto"
+    if outcome not in OUTCOME_CHOICES:
+        raise IngestionError(f"outcome must be one of {', '.join(OUTCOME_CHOICES)}, not {outcome!r}.")
+    episodes = _normalize_many(raw, filename, **kwargs)
+    if outcome != "auto":
+        for e in episodes:
+            e.outcome, e.outcome_source = outcome, "override"
+    return episodes
+
+
+def _normalize_many(raw: bytes, filename: str, **kwargs) -> list[NormalizedEpisode]:
     """Every episode in an upload.
 
     A legacy JSON file yields a one-element list; a LeRobot v3 archive or an RLDS `.tfrecord`
@@ -238,23 +292,24 @@ def normalize_many(raw: bytes, filename: str, **kwargs) -> list[NormalizedEpisod
     """
     lower = filename.lower()
 
-    if lower.endswith(".tfrecord") or lower.endswith(".tfrecords"):
+    if is_tfrecord_name(lower):
         from aperture.ingestion.rlds_tfrecord import TFRecordError, parse_tfrecord_episodes
 
         try:
-            return parse_tfrecord_episodes(raw, **_reader_kwargs(kwargs, frames_key="max_frames"))
+            episodes = parse_tfrecord_episodes(raw, **_reader_kwargs(kwargs, frames_key="max_frames"))
         except TFRecordError as e:
             raise IngestionError(f"{filename}: {e}") from e
+        return _name_unknown_robots(episodes, filename)
 
     if is_archive(filename):
-        return _normalize_archive(raw, filename, kwargs)
+        return _name_unknown_robots(_normalize_archive(raw, filename, kwargs), filename)
 
     return [normalize(raw, filename)]
 
 
 def _reader_kwargs(kwargs: dict, frames_key: str) -> dict:
     """Reader kwargs, renaming the frame cap to whatever that reader calls it."""
-    out = {k: v for k, v in kwargs.items() if k in ("embodiment_type", "policy_name")}
+    out = {k: v for k, v in kwargs.items() if k in ("embodiment_type", "policy_name", "images_per_episode")}
     cap = kwargs.get("max_frames_per_episode")
     if cap is not None:
         out[frames_key] = cap
@@ -294,7 +349,7 @@ def _normalize_archive(raw: bytes, filename: str, kwargs: dict) -> list[Normaliz
             except Exception as e:
                 raise IngestionError(f"{filename}: unreadable LeRobot v3 dataset: {e}") from e
 
-        shards = sorted(p for p in root.rglob("*") if p.suffix in (".tfrecord", ".tfrecords"))
+        shards = sorted(p for p in root.rglob("*") if p.is_file() and is_tfrecord_name(p.name))
         if shards:
             from aperture.ingestion.rlds_tfrecord import TFRecordError, parse_tfrecord_episodes
 

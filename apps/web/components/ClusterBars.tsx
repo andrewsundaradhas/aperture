@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Cluster, SURFACE_BLURB, SURFACE_HEX } from "@/lib/api";
+import { Cluster, SURFACE_BLURB, SURFACE_HEX, clusterTitle } from "@/lib/api";
 import { Mark } from "@/components/ui";
 
 /**
@@ -19,28 +19,27 @@ export function ClusterBars({ clusters }: { clusters: Cluster[] }) {
   return (
     <ul className="space-y-1">
       {ranked.map((c) => {
-        const hex = c.dominant_surface ? SURFACE_HEX[c.dominant_surface] : "#ffffff";
+        const hex = c.dominant_surface ? SURFACE_HEX[c.dominant_surface] : "#c3b0cb";
         return (
           <li key={c.id}>
             <Link
               href={`/clusters/${c.id}`}
               className="group grid grid-cols-[auto_1fr_auto] items-center gap-4 rounded-tag px-2 py-2.5 transition hover:bg-bone-white"
             >
-              <span className="flex w-40 min-w-0 items-center gap-2">
+              <span className="flex w-52 min-w-0 items-center gap-2">
                 <Mark surface={c.dominant_surface} size={10} />
-                <span className="muoto truncate text-caption text-forest-ink group-hover:text-deep-fern group-hover:underline">
-                  {c.label}
+                <span className="truncate text-body text-forest-ink group-hover:text-deep-fern group-hover:underline">
+                  {clusterTitle(c)}
                 </span>
               </span>
 
               <span className="flex items-center gap-3">
                 {/* 4px rounded data-end, anchored to the baseline at left. */}
                 <span
-                  className="h-2.5 rounded-[4px]"
+                  className="h-2.5 rounded-tag"
                   style={{
                     width: `${Math.max((c.episode_count / max) * 100, 2)}%`,
                     background: hex,
-                    boxShadow: "inset 0 0 0 0.5px #09352e",
                   }}
                 />
                 <span className="hidden truncate text-caption text-slate-smoke lg:block">

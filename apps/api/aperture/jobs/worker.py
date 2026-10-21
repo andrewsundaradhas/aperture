@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 import signal
 import threading
-import time
 
 from aperture.core.db import SessionLocal
 from aperture.jobs.queue import run_once

@@ -19,7 +19,7 @@ from aperture.core.auth import resolve_org
 from aperture.core.config import get_settings
 from aperture.core.db import init_db
 from aperture.core.models import Organization
-from aperture.core.storage import get_storage
+from aperture.core.storage import get_storage, key_belongs_to
 
 # --- Optional Sentry (Phase 6) ------------------------------------------------
 _sentry_dsn = os.getenv("APERTURE_SENTRY_DSN")
@@ -85,7 +85,7 @@ def get_blob(key: str, org: Organization = Depends(resolve_org)) -> Response:
     A real R2 presigned GET carries its own scoped authorisation and bypasses this route
     entirely; this is the path used when the client is handed a `/v1/blobs/...` URL instead.
     """
-    if not key.startswith(f"{org.slug}/"):
+    if not key_belongs_to(key, org.slug):
         raise HTTPException(403, "Key does not belong to this organization.")
     try:
         data = get_storage().get_bytes(key)
@@ -106,16 +106,28 @@ async def put_blob(key: str, request: Request, org: Organization = Depends(resol
     Unlike a presigned URL — which carries its own scoped authorisation — this route is
     reachable by anyone, so it authenticates and confines each org to its own key prefix.
     """
-    if not key.startswith(f"{org.slug}/"):
+    if not key_belongs_to(key, org.slug):
         raise HTTPException(403, "Key does not belong to this organization.")
 
-    settings = get_settings()
-    body = await request.body()
-    if len(body) > settings.max_upload_bytes:
-        raise HTTPException(413, f"Upload is {len(body)} bytes, over the configured limit.")
+    # This is the large-file path (the small-file limit applies to /v1/episodes/upload), so the
+    # cap is the ingest limit, and the body is streamed to a temp file in chunks: reading it into
+    # memory, under the 50 MB small-file cap, rejected every real robot dataset over 50 MB.
+    import tempfile
 
-    get_storage().put_bytes(key, body)
-    return {"key": key, "bytes": len(body)}
+    limit = get_settings().max_ingest_bytes
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(413, f"Upload is {int(declared)} bytes, over the {limit}-byte limit.")
+    size = 0
+    with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024) as buf:
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                raise HTTPException(413, f"Upload exceeds the {limit}-byte limit.")
+            buf.write(chunk)
+        buf.seek(0)
+        get_storage().put_fileobj(key, buf)
+    return {"key": key, "bytes": size}
 
 
 # --- Layer routers ------------------------------------------------------------

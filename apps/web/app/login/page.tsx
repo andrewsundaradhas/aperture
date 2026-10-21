@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { Spinner } from "@/components/ui";
@@ -10,6 +10,16 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // "org": sign in with your organization's API key. "password": the shared dashboard password.
+  const [mode, setMode] = useState<"org" | "password" | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/login")
+      .then((r) => r.json())
+      .then((c) => setMode(c.mode === "password" ? "password" : "org"))
+      .catch(() => setMode("org"));
+  }, []);
+  const isOrg = mode === "org";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -19,7 +29,7 @@ function LoginForm() {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(isOrg ? { apiKey: password } : { password }),
       });
       if (!res.ok) {
         setError((await res.json().catch(() => ({})))?.detail ?? "Sign in failed.");
@@ -45,24 +55,27 @@ function LoginForm() {
 
   return (
     <div className="mx-auto flex min-h-[78vh] max-w-sm flex-col justify-center">
-      <div className="card gridded-fine p-8">
+      <div className="card p-8">
         <span className="tag tag-ink">Restricted</span>
-        <h1 className="mt-5 text-heading font-medium text-forest-ink">Aperture</h1>
-        <p className="mt-2 text-body text-slate-smoke">
-          This dashboard shows a fleet&rsquo;s failure data. Sign in to continue.
+        <h1 className="mt-5 text-[84px] leading-[0.85] text-lavender">Aperture</h1>
+        <p className="mt-4 text-body text-slate-smoke">
+          {isOrg
+            ? "Sign in with your organization's API key (it starts with ak_). Your Aperture admin can issue one."
+            : "This dashboard shows a fleet\u2019s failure data. Sign in to continue."}
         </p>
 
         <div className="mt-6 h-px w-full bg-lichen" aria-hidden />
 
         <form onSubmit={submit} className="mt-6 space-y-3">
           <label className="cinetype block text-[11px] text-slate-smoke" htmlFor="password">
-            PASSWORD
+            {isOrg ? "ORGANIZATION API KEY" : "PASSWORD"}
           </label>
           <input
             id="password"
             type="password"
             autoFocus
-            autoComplete="current-password"
+            autoComplete={isOrg ? "off" : "current-password"}
+            spellCheck={false}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="field"
@@ -73,7 +86,7 @@ function LoginForm() {
               {error}
             </p>
           )}
-          <button type="submit" className="btn-filled w-full" disabled={busy || !password}>
+          <button type="submit" className="btn-filled w-full" disabled={busy || !password || !mode}>
             {busy && <Spinner />}
             Sign in
           </button>

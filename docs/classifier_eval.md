@@ -21,13 +21,19 @@ labeled fleet episodes when you have them — `build_eval_set` is the only thing
 
 | | Accuracy | Macro F1 |
 |---|---|---|
-| **3-heuristic classifier** (seed 0) | **0.926** | **0.926** |
-| **…on a held-out draw** (seed 99) | **0.920** | **0.920** |
+| **3-heuristic classifier** (seed 0) | **0.926** | **0.932** |
+| **…on a held-out draw** (seed 99) | **0.920** | **0.924** |
 | Majority-class baseline (`motor`) | 0.333 | 0.167 |
-| Lift over baseline (held-out) | +0.587 | +0.753 |
+| Lift over baseline (held-out) | +0.587 | +0.757 |
 
 `n = 1200` episodes per draw, balanced across the three surfaces, so the baseline is
 1/3 by construction.
+
+**Abstentions.** 1.2% of episodes (held-out: 0.8%)
+come back `unknown`: two or more signal channels were missing and the rest were quiet, so no
+surface can be argued for. They count as errors above. Before the classifier could abstain,
+every one of these episodes was given a surface by tie-break, and every one was wrong:
+accuracy is identical with and without abstention, but precision is higher with it.
 
 **Read the held-out row, not the first one.** `CONF_COLLAPSE_RATIO` and `FORCE_SPIKE_Z` were
 fitted by sweep against seed 0, so that row is optimistic by construction. Seed
@@ -39,17 +45,17 @@ fitting rather than signal.
 
 | Class | Precision | Recall | F1 | Support |
 |---|---|---|---|---|
-| perception | 0.936 | 0.910 | 0.923 | 400 |
-| grounding | 0.885 | 0.940 | 0.911 | 400 |
-| motor | 0.961 | 0.927 | 0.944 | 400 |
+| perception | 0.955 | 0.910 | 0.932 | 400 |
+| grounding | 0.891 | 0.940 | 0.915 | 400 |
+| motor | 0.971 | 0.927 | 0.949 | 400 |
 
 ### Confusion
 
-| true \ predicted | perception | grounding | motor |
-|---|---|---|---|
-| **perception** | 364 | 32 | 4 |
-| **grounding** | 13 | 376 | 11 |
-| **motor** | 12 | 17 | 371 |
+| true \ predicted | perception | grounding | motor | unknown |
+|---|---|---|---|---|
+| **perception** | 364 | 30 | 3 | 3 |
+| **grounding** | 9 | 376 | 8 | 7 |
+| **motor** | 8 | 16 | 371 | 5 |
 
 ## Where it breaks down
 

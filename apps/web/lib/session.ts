@@ -1,5 +1,12 @@
 /**
- * Dashboard session: an HMAC-signed, HttpOnly cookie.
+ * Dashboard session: an HttpOnly cookie, in one of two modes.
+ *
+ * - **org** (no `APERTURE_API_KEY` on the server): each person signs in with their own
+ *   organization's API key. The key is sealed into the cookie with AES-GCM, so one dashboard
+ *   deployment serves every customer and the proxy attaches the key of whoever is signed in.
+ *   The browser holds only ciphertext it cannot read or forge.
+ * - **password** (`APERTURE_API_KEY` set): the original single-org deployment — one shared
+ *   password gates the dashboard and the server's key is used for every request.
  *
  * Deliberately no new dependency. NextAuth/Lucia/iron-session are all better answers once an
  * identity provider is chosen, and swapping this out is a contained change — but adding an auth
@@ -87,17 +94,90 @@ export async function secretsMatch(candidate: string, expected: string): Promise
   return crypto.subtle.verify("HMAC", key, candidateDigest, new TextEncoder().encode(expected));
 }
 
-/** Config read once, so the "is auth even on?" rule lives in one place. */
+/** AES-GCM key derived from the session secret. */
+async function aesKey(secret: string): Promise<CryptoKey> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`aperture-session-v1:${secret}`));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+export type OrgSession = { k: string; exp: number; slug: string; name: string };
+
+/** Seal an org session: `<iv>.<ciphertext>`, both base64url. GCM authenticates as well as hides. */
+export async function sealOrgSession(
+  secret: string,
+  data: Omit<OrgSession, "exp">,
+  ttlSeconds = SESSION_TTL_SECONDS,
+): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const payload: OrgSession = { ...data, exp: Math.floor(Date.now() / 1000) + ttlSeconds };
+  const ct = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    await aesKey(secret),
+    new TextEncoder().encode(JSON.stringify(payload)),
+  );
+  return `${toBase64Url(iv.buffer as ArrayBuffer)}.${toBase64Url(ct)}`;
+}
+
+/** The org session in a cookie, or null if it is missing, tampered with, or expired. */
+export async function openOrgSession(cookieValue: string | undefined, secret: string): Promise<OrgSession | null> {
+  if (!cookieValue || !secret) return null;
+  const [iv, ct] = cookieValue.split(".");
+  if (!iv || !ct) return null;
+  try {
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: fromBase64Url(iv) as BufferSource },
+      await aesKey(secret),
+      fromBase64Url(ct) as BufferSource,
+    );
+    const data = JSON.parse(new TextDecoder().decode(plain)) as OrgSession;
+    if (typeof data.k !== "string" || !(data.exp > Math.floor(Date.now() / 1000))) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+// Local development only: lets `npm run dev` use org sign-in without configuring a secret.
+// Never used when NODE_ENV=production — there, a missing secret fails closed (503).
+const DEV_ONLY_SECRET = "aperture-local-development-session-secret";
+
+export type AuthMode = "org" | "password";
+
+/** Config read once, so the "is auth even on, and how?" rule lives in one place. */
 export function authConfig() {
+  const production = process.env.NODE_ENV === "production";
   const password = process.env.APERTURE_DASHBOARD_PASSWORD;
+  const serverKey = process.env.APERTURE_API_KEY;
+  const mode: AuthMode = serverKey ? "password" : "org";
+
+  if (mode === "org") {
+    const secret = process.env.APERTURE_SESSION_SECRET || (production ? "" : DEV_ONLY_SECRET);
+    return { mode, password, secret, required: true, configured: Boolean(secret) };
+  }
+
   const secret = process.env.APERTURE_SESSION_SECRET || password || "";
   return {
+    mode,
     password,
     secret,
     // Fail closed in production: a deployment that forgot the password must not serve the
     // fleet's failure data to anyone who finds the URL. In development, absent means off, so
     // `npm run dev` needs no setup.
-    required: Boolean(password) || process.env.NODE_ENV === "production",
+    required: Boolean(password) || production,
     configured: Boolean(password && secret),
   };
+}
+
+/** Is this cookie a live session for the configured mode? */
+export async function hasValidSession(cookieValue: string | undefined): Promise<boolean> {
+  const { mode, secret } = authConfig();
+  if (mode === "org") return (await openOrgSession(cookieValue, secret)) !== null;
+  return isValidSession(cookieValue, secret);
+}
+
+/** The API key a request should be made with: the signed-in org's, or the server's own. */
+export async function apiKeyFor(cookieValue: string | undefined): Promise<string> {
+  const { mode, secret } = authConfig();
+  if (mode === "org") return (await openOrgSession(cookieValue, secret))?.k ?? "";
+  return process.env.APERTURE_API_KEY || "";
 }

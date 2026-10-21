@@ -56,14 +56,65 @@ def episode_ingest(db: Session, job: Job) -> dict:
     try:
         episodes = normalize_many(
             raw, filename,
+            outcome=job.payload.get("outcome") or "auto",
             max_frames_per_episode=get_settings().max_frames_per_episode or None,
+            images_per_episode=get_settings().max_images_per_episode,
         )
     except IngestionError as exc:
         # A malformed upload is the user's problem, not a transient fault — do not burn retries.
         raise PermanentJobError(str(exc)) from exc
 
     episode_ids = [persist_episode(db, org, ne).id for ne in episodes]
-    return {"episode_ids": episode_ids, "count": len(episode_ids), "filename": filename}
+    classify_job = enqueue_classification(db, org, episode_ids)
+    return {
+        "episode_ids": episode_ids, "count": len(episode_ids), "filename": filename,
+        "classify_job_id": classify_job,
+    }
+
+
+def classify_pending(db: Session, job: Job) -> dict:
+    """Classify failed episodes that have no verdict yet (or all of them, with `reclassify`).
+
+    Queued automatically after every upload and ingest, so clustering — which only considers
+    classified failures — has something to work with without one API call per episode.
+    Commits in batches so a large backlog makes visible progress and a crash loses one batch.
+    """
+    from sqlalchemy import select
+
+    from aperture.core.models import Episode, FailureClassification
+    from aperture.evaluation.router import run_classification
+
+    payload = job.payload or {}
+    stmt = select(Episode).where(Episode.org_id == job.org_id, Episode.outcome == "fail")
+    if payload.get("episode_ids"):
+        stmt = stmt.where(Episode.id.in_(payload["episode_ids"]))
+    if not payload.get("reclassify"):
+        stmt = stmt.outerjoin(
+            FailureClassification, FailureClassification.episode_id == Episode.id
+        ).where(FailureClassification.id.is_(None))
+    ids = [e.id for e in db.execute(stmt.order_by(Episode.id)).scalars()]
+
+    surfaces: dict[str, int] = {}
+    for i, eid in enumerate(ids, 1):
+        row = run_classification(db, db.get(Episode, eid))
+        surfaces[row.surface] = surfaces.get(row.surface, 0) + 1
+        if i % CLASSIFY_BATCH == 0:
+            db.commit()
+    db.flush()
+    return {"classified": len(ids), "surfaces": surfaces}
+
+
+CLASSIFY_BATCH = 100
+
+
+def enqueue_classification(db: Session, org: Organization, episode_ids: list[str]) -> str | None:
+    """Queue `classify_pending` for freshly ingested episodes when auto-classify is on."""
+    from aperture.core.config import get_settings
+    from aperture.jobs.queue import enqueue
+
+    if not episode_ids or not get_settings().auto_classify:
+        return None
+    return enqueue(db, org, "classify_pending", {"episode_ids": episode_ids}).id
 
 
 class PermanentJobError(Exception):
@@ -73,4 +124,5 @@ class PermanentJobError(Exception):
 HANDLERS = {
     "cluster_recompute": cluster_recompute,
     "episode_ingest": episode_ingest,
+    "classify_pending": classify_pending,
 }

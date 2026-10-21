@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -241,12 +242,15 @@ class Job(Base):
     """
 
     __tablename__ = "jobs"
+    # The worker's claim query is `where status = 'queued' order by created_at`. Declared here as
+    # well as in the migration so `alembic revision --autogenerate` does not propose dropping it.
+    __table_args__ = (Index("ix_jobs_status_created", "status", "created_at"),)
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organizations.id"), index=True)
     kind: Mapped[str] = mapped_column(String, index=True)  # see aperture.jobs.handlers
     status: Mapped[str] = mapped_column(String, default="queued", index=True)
-    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)  # matches migration
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
     # Retries are bounded: a job that fails deterministically must stop burning the worker

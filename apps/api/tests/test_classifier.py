@@ -36,13 +36,58 @@ def test_ambiguous_is_low_confidence():
     assert c.confidence < 0.4
 
 
-def test_tie_breaks_toward_motor():
+def test_no_signal_at_all_is_unknown_not_a_guess():
     from aperture.ingestion.schemas import NormalizedFrame
 
-    # Craft frames with no discriminating signal -> all heuristics ~0 -> tie -> motor wins.
+    # No channel is observable, so no surface can be argued for or ruled out.
     frames = [NormalizedFrame(t=i) for i in range(6)]
     c = classify_frames(frames)
+    assert c.surface == "unknown"
+    assert c.confidence == 0.0
+    assert "_unknown" in c.details
+
+
+def test_all_channels_present_and_quiet_still_tie_breaks_toward_motor():
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    frames = [
+        NormalizedFrame(t=i, action_confidence=0.9, contact_force=1.0 + 0.01 * (i % 2), subgoal=f"s{i // 3}")
+        for i in range(12)
+    ]
+    c = classify_frames(frames)
     assert c.surface == "motor"
+
+
+def _smooth_actions(n=40):
+    import math
+
+    return [[math.sin(i / 6), math.cos(i / 6), 0.1 * i / n, 1.0 if i > n // 2 else 0.0] for i in range(n)]
+
+
+def test_action_trace_jerk_is_a_motor_signal():
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    acts = _smooth_actions()
+    acts[25] = [3.0, -3.0, 0.9, 1.0]  # one violent command jump
+    c = classify_frames([NormalizedFrame(t=i, action=a) for i, a in enumerate(acts)])
+    assert c.surface == "motor"
+    assert c.confidence > 0.05
+    assert "action_trace" in c.details["motor"]["evidence"]
+
+
+def test_smooth_action_trace_alone_is_unknown():
+    from aperture.ingestion.schemas import NormalizedFrame
+
+    # Motor is observable and quiet, perception and grounding are unobservable: nothing to say.
+    c = classify_frames([NormalizedFrame(t=i, action=a) for i, a in enumerate(_smooth_actions())])
+    assert c.surface == "unknown"
+
+
+def test_a_gripper_toggle_is_not_jerk():
+    from aperture.evaluation.heuristics import action_trace_anomaly
+
+    v = action_trace_anomaly(_smooth_actions())  # dim 3 is a 0 -> 1 gripper toggle
+    assert v.signal_present and v.confidence == 0.0
 
 
 def test_classify_endpoint(client, auth):

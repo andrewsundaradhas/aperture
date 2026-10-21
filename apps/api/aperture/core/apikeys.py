@@ -18,6 +18,7 @@ from aperture.core.models import ApiKey, Organization
 KEY_PREFIX = "ak_"
 KEY_BYTES = 24          # 192 bits of entropy — not brute-forceable, so no work factor needed
 PREFIX_DISPLAY_LEN = 7  # "ak_" + 4 chars, enough to tell two keys apart in a list
+LAST_USED_RESOLUTION_SECONDS = 60
 
 
 def hash_key(raw: str) -> str:
@@ -54,7 +55,14 @@ def resolve_key(db: Session, raw: str) -> Organization | None:
     ).scalar_one_or_none()
     if row is None or row.revoked_at is not None:
         return None
-    row.last_used_at = datetime.now(timezone.utc)
+    # Throttled: writing this on every request turned each read into a write, which on SQLite
+    # queued every API call behind a long-running ingest for the write lock.
+    now = datetime.now(timezone.utc)
+    last = row.last_used_at
+    if last is not None and last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    if last is None or (now - last).total_seconds() > LAST_USED_RESOLUTION_SECONDS:
+        row.last_used_at = now
     return db.get(Organization, row.org_id)
 
 

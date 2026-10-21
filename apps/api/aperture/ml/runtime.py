@@ -51,11 +51,15 @@ class _Models:
         self.device = device
 
 
-def _resolve_weight(repo: str, filename: str, local_dir: str | None) -> str:
+def _resolve_weight(repo: str | None, filename: str, local_dir: str | None) -> str:
     if local_dir:
         p = Path(local_dir) / filename
         if p.exists():
             return str(p)
+    if not repo:
+        raise FileNotFoundError(
+            f"{filename} not found in {local_dir!r} and APERTURE_HF_MODEL_REPO is not set"
+        )
     from huggingface_hub import hf_hub_download
 
     return hf_hub_download(repo_id=repo, filename=filename)
@@ -76,10 +80,10 @@ def _load_models() -> _Models:
     head_path = _resolve_weight(s.hf_model_repo, s.hf_failure_head_file, s.local_model_dir)
 
     policy = AperturePolicy().to(device).eval()
-    policy.load_state_dict(torch.load(policy_path, map_location=device))
+    policy.load_state_dict(torch.load(policy_path, map_location=device, weights_only=True))
 
     failure_head = FailureHead(policy.vision.num_features).to(device).eval()
-    failure_head.load_state_dict(torch.load(head_path, map_location=device))
+    failure_head.load_state_dict(torch.load(head_path, map_location=device, weights_only=True))
 
     logger.info("Loaded learned models on %s (policy=%s, head=%s)", device, policy_path, head_path)
     return _Models(policy, failure_head, device)

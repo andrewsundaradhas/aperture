@@ -51,9 +51,15 @@ def scores(y_true: list[str], y_pred: list[str]) -> dict:
         }
 
     macro_f1 = sum(v["f1"] for v in per_class.values()) / len(SURFACES)
-    confusion = [[sum(1 for t, p in zip(y_true, y_pred) if t == a and p == b) for b in SURFACES] for a in SURFACES]
+    confusion = [
+        [sum(1 for t, p in zip(y_true, y_pred) if t == a and p == b) for b in (*SURFACES, "unknown")]
+        for a in SURFACES
+    ]
     return {
         "accuracy": round(sum(t == p for t, p in zip(y_true, y_pred)) / len(y_true), 4),
+        # The classifier abstains ("unknown") when too few channels are observable to decide.
+        # Abstentions count as wrong in accuracy and recall, and never as a false positive.
+        "unknown_rate": round(sum(p == "unknown" for p in y_pred) / len(y_pred), 4),
         "macro_f1": round(macro_f1, 4),
         "per_class": per_class,
         "confusion_matrix": confusion,
@@ -70,7 +76,8 @@ def _table(result: dict) -> str:
 
 
 def _confusion(result: dict) -> str:
-    rows = ["| true \\ predicted | " + " | ".join(SURFACES) + " |", "|---" * (len(SURFACES) + 1) + "|"]
+    cols = (*SURFACES, "unknown")
+    rows = ["| true \\ predicted | " + " | ".join(cols) + " |", "|---" * (len(cols) + 1) + "|"]
     for surface, row in zip(SURFACES, result["confusion_matrix"]):
         rows.append(f"| **{surface}** | " + " | ".join(str(v) for v in row) + " |")
     return "\n".join(rows)
@@ -203,6 +210,12 @@ labeled fleet episodes when you have them — `build_eval_set` is the only thing
 
 `n = {len(episodes)}` episodes per draw, balanced across the three surfaces, so the baseline is
 1/3 by construction.
+
+**Abstentions.** {heuristic['unknown_rate']:.1%} of episodes (held-out: {holdout['unknown_rate']:.1%})
+come back `unknown`: two or more signal channels were missing and the rest were quiet, so no
+surface can be argued for. They count as errors above. Before the classifier could abstain,
+every one of these episodes was given a surface by tie-break, and every one was wrong:
+accuracy is identical with and without abstention, but precision is higher with it.
 
 **Read the held-out row, not the first one.** `CONF_COLLAPSE_RATIO` and `FORCE_SPIKE_Z` were
 fitted by sweep against seed {args.seed}, so that row is optimistic by construction. Seed

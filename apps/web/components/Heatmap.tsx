@@ -13,12 +13,13 @@ type HeatmapDoc = {
 // more attention" reads without a key. A multi-hue ramp (viridis and friends) would be a
 // rainbow in a system that has exactly one hue, and rainbows imply category boundaries that
 // a continuous attention weight does not have.
+// Plum ground → lavender → near-white: brighter means more attention, on the dark canvas.
 const STOPS = [
-  [240, 244, 241],
-  [168, 207, 176],
-  [77, 165, 109],
-  [11, 107, 69],
-  [9, 53, 46],
+  [46, 8, 56],
+  [96, 32, 118],
+  [162, 78, 196],
+  [232, 148, 255],
+  [255, 236, 255],
 ];
 
 function heatColor(v: number): string {
@@ -71,6 +72,18 @@ export function Heatmap({ uri }: { uri: string | null }) {
       <div className="space-y-3">
         <div className="skeleton mx-auto aspect-square w-[240px] rounded-card" />
         <div className="skeleton mx-auto h-2 w-32" />
+      </div>
+    );
+
+  // Without the learned-model service the API synthesizes a placeholder map and flags it
+  // `simulated`. A made-up heatmap must never be shown to someone diagnosing a real robot.
+  if (doc.simulated)
+    return (
+      <div className="flex min-h-[120px] flex-col items-start justify-center gap-1">
+        <div className="text-body text-forest-ink">Attention maps aren&rsquo;t enabled for this workspace.</div>
+        <div className="text-body text-slate-smoke">
+          They need Aperture&rsquo;s learned-model service. Failure analysis above works without it.
+        </div>
       </div>
     );
 
@@ -127,14 +140,6 @@ export function Heatmap({ uri }: { uri: string | null }) {
           frame {current?.t ?? 0}
           <span className="text-slate-smoke"> / {doc.frames.length - 1}</span>
         </span>
-        {doc.simulated && (
-          <span
-            className="tag"
-            title="No GPU worker is configured, so the map is synthesized. Run ml/notebooks/attention_rollout.ipynb for real rollout."
-          >
-            simulated
-          </span>
-        )}
       </div>
     </div>
   );

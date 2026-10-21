@@ -212,9 +212,10 @@ def test_cluster_recompute_handler_produces_clusters(client, auth, db_session, o
         for eid in res.json()["episode_ids"]:
             client.post(f"/v1/episodes/{eid}/classify", headers=auth)
 
-    job = queue.enqueue(db_session, org, "cluster_recompute")
+    queue.enqueue(db_session, org, "cluster_recompute")
     db_session.commit()
-    done = queue.run_once(db_session)
+    # Uploads now queue their own classify jobs ahead of this one; run the kind under test.
+    done = queue.run_once(db_session, kinds=["cluster_recompute"])
 
     assert done.status == "done", done.error
     assert done.result["cluster_count"] >= 1

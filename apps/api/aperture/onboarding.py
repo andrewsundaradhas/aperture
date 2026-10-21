@@ -10,15 +10,19 @@ can recover it afterwards, which is the point of storing only the hash.
 
 from __future__ import annotations
 
+import hmac
+import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from aperture.core.apikeys import issue_key, revoke_key
-from aperture.core.auth import resolve_org
+from aperture.core.auth import bind_org_to_transaction, resolve_org
+from aperture.core.config import get_settings
 from aperture.core.db import get_db
 from aperture.core.pagination import Page, page_params
 from aperture.core.models import ApiKey, Organization, Robot
@@ -26,10 +30,17 @@ from aperture.core.models import ApiKey, Organization, Robot
 router = APIRouter(prefix="/v1/onboarding", tags=["onboarding"])
 
 
+# The slug is the first segment of every storage key the org owns (`<slug>/episodes/...`), so it
+# must never contain a path separator or dot segment: a slug like `acme/episodes` would put one
+# tenant's keys *inside* another's prefix.
+SLUG_PATTERN = r"^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$"
+
+
 class OrgSignup(BaseModel):
-    slug: str
-    name: str
-    tier: str = "pilot"
+    slug: str = Field(pattern=SLUG_PATTERN, description="Lowercase letters, digits and hyphens; 3-48 chars.")
+    name: str = Field(min_length=1, max_length=200)
+    # No `tier` here on purpose: the plan an org is on is an operator decision, not something a
+    # signup request gets to choose. New orgs start on "pilot".
 
 
 class OrgSignupOut(BaseModel):
@@ -63,17 +74,61 @@ class RobotOut(BaseModel):
     policy_name: str
 
 
-@router.post("/signup", response_model=OrgSignupOut, status_code=status.HTTP_201_CREATED)
-def signup(body: OrgSignup, db: Session = Depends(get_db)) -> OrgSignupOut:
-    existing = db.execute(select(Organization).where(Organization.slug == body.slug)).scalar_one_or_none()
-    if existing:
-        raise HTTPException(status.HTTP_409_CONFLICT, f"Org slug '{body.slug}' already exists.")
-    org = Organization(slug=body.slug, name=body.name, tier=body.tier)
-    db.add(org)
-    db.commit()
+def _check_signup_token(provided: str | None) -> None:
+    settings = get_settings()
+    expected = settings.signup_token
+    if not expected:
+        if settings.environment == "production":
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Self-serve signup is closed. Set APERTURE_SIGNUP_TOKEN to enable it.",
+            )
+        return  # local/dev: open, so the quick-start works without setup
+    if not provided or not hmac.compare_digest(provided.encode(), expected.encode()):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing or invalid X-Signup-Token.")
 
-    api_key, _row = issue_key(db, org)
-    db.commit()
+
+def slug_taken(db: Session, slug: str) -> bool:
+    if db.get_bind().dialect.name == "postgresql":
+        # Under RLS this caller can see no organizations at all, so an ORM lookup would always
+        # say "free". The definer-rights lookup answers exactly this one question.
+        return db.execute(text("select resolve_org_slug(:s)"), {"s": slug}).scalar() is not None
+    return db.execute(select(Organization.id).where(Organization.slug == slug)).first() is not None
+
+
+def create_org(db: Session, slug: str, name: str, tier: str = "pilot") -> tuple[Organization, str]:
+    """Create an org and its first API key; returns `(org, raw_key)`. The caller commits.
+
+    Works under Postgres RLS: the new org's id is chosen first and bound to the transaction,
+    because the organizations policy only admits a row whose id is the transaction's org.
+    Raises IntegrityError if the slug is taken (unique index).
+    """
+    org_id = str(uuid.uuid4())
+    bind_org_to_transaction(db, org_id)
+    org = Organization(id=org_id, slug=slug, name=name, tier=tier)
+    db.add(org)
+    db.flush()
+    raw, _row = issue_key(db, org)
+    return org, raw
+
+
+@router.post("/signup", response_model=OrgSignupOut, status_code=status.HTTP_201_CREATED)
+def signup(
+    body: OrgSignup,
+    db: Session = Depends(get_db),
+    x_signup_token: str | None = Header(default=None, alias="X-Signup-Token"),
+) -> OrgSignupOut:
+    _check_signup_token(x_signup_token)
+    if slug_taken(db, body.slug):
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Org slug '{body.slug}' already exists.")
+
+    try:
+        org, api_key = create_org(db, body.slug, body.name)
+        db.commit()
+    except IntegrityError:
+        # Lost a race with a concurrent signup for the same slug.
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Org slug '{body.slug}' already exists.")
 
     return OrgSignupOut(
         org_id=org.id,
@@ -81,6 +136,19 @@ def signup(body: OrgSignup, db: Session = Depends(get_db)) -> OrgSignupOut:
         api_key=api_key,
         note="Save this key — only its hash is stored, so it cannot be shown again.",
     )
+
+
+class OrgOut(BaseModel):
+    org_id: str
+    slug: str
+    name: str
+    tier: str
+
+
+@router.get("/me", response_model=OrgOut)
+def whoami(org: Organization = Depends(resolve_org)) -> OrgOut:
+    """The organization this API key belongs to. The dashboard uses it to validate a sign-in."""
+    return OrgOut(org_id=org.id, slug=org.slug, name=org.name, tier=org.tier)
 
 
 @router.get("/keys", response_model=list[ApiKeyOut])
